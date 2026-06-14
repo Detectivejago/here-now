@@ -679,7 +679,8 @@ a {
 }
 
 .login-page,
-.admin-page {
+.admin-page,
+.event-page {
   min-height: 100dvh;
   display: flex;
   justify-content: center;
@@ -688,7 +689,8 @@ a {
 }
 
 .login-card,
-.admin-shell {
+.admin-shell,
+.event-detail-card {
   width: min(100%, 860px);
   color: var(--navy);
 }
@@ -700,6 +702,41 @@ a {
   background: var(--paper);
   box-shadow: var(--shadow-soft);
   padding: 24px;
+}
+
+.event-detail-card {
+  max-width: 560px;
+  align-self: flex-start;
+  overflow: hidden;
+  border-radius: 32px;
+  background: var(--paper);
+  box-shadow: var(--shadow-soft);
+}
+
+.event-detail-image {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  background: var(--cream-deep);
+}
+
+.event-detail-body {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+}
+
+.event-detail-body h1 {
+  margin: 0;
+  font-size: clamp(2rem, 10vw, 3rem);
+  line-height: 1;
+}
+
+.event-back-link {
+  width: fit-content;
+  color: var(--navy);
+  font-size: 0.9rem;
+  font-weight: 900;
 }
 
 .login-title,
