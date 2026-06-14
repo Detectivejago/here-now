@@ -149,7 +149,12 @@ insert into public.events (
   address,
   image_url,
   created_by,
-  status
+  moderation_status,
+  status,
+  event_type,
+  visibility,
+  source_type,
+  confidence_score
 )
 values
   (
@@ -165,7 +170,12 @@ values
     'Brera, Milano',
     'https://images.unsplash.com/photo-1511192336575-5a79af67a629?auto=format&fit=crop&w=900&q=80',
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   ),
   (
     '90000000-0000-4000-8000-000000000002',
@@ -180,7 +190,12 @@ values
     'Porta Nuova, Milano',
     null,
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   ),
   (
     '90000000-0000-4000-8000-000000000003',
@@ -195,7 +210,12 @@ values
     'Navigli, Milano',
     'https://images.unsplash.com/photo-1510812431401-41d2bd2722f3?auto=format&fit=crop&w=900&q=80',
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   ),
   (
     '90000000-0000-4000-8000-000000000004',
@@ -210,7 +230,12 @@ values
     'Le Marais, Paris',
     null,
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   ),
   (
     '90000000-0000-4000-8000-000000000005',
@@ -225,7 +250,12 @@ values
     'Jordaan, Amsterdam',
     null,
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   ),
   (
     '90000000-0000-4000-8000-000000000006',
@@ -240,7 +270,12 @@ values
     'Flatiron, New York',
     'https://images.unsplash.com/photo-1492684223066-81342ee5ff30?auto=format&fit=crop&w=900&q=80',
     null,
-    'approved'
+    'approved',
+    'upcoming',
+    'temporary',
+    'public',
+    'manual',
+    1
   )
 on conflict (id) do update
 set title = excluded.title,
@@ -253,6 +288,35 @@ set title = excluded.title,
     longitude = excluded.longitude,
     address = excluded.address,
     image_url = excluded.image_url,
-    status = excluded.status;
+    moderation_status = excluded.moderation_status,
+    status = excluded.status,
+    event_type = excluded.event_type,
+    visibility = excluded.visibility,
+    source_type = excluded.source_type,
+    confidence_score = excluded.confidence_score;
+
+insert into public.event_sources (
+  provider,
+  name,
+  source_type,
+  base_url,
+  api_key_env,
+  enabled,
+  config
+)
+values (
+  'ticketmaster',
+  'Ticketmaster Discovery API',
+  'api',
+  'https://app.ticketmaster.com/discovery/v2',
+  'TICKETMASTER_API_KEY',
+  false,
+  '{"adapter":"ticketmaster"}'::jsonb
+)
+on conflict (provider, name) do update
+set source_type = excluded.source_type,
+    base_url = excluded.base_url,
+    api_key_env = excluded.api_key_env,
+    config = excluded.config;
 
 commit;

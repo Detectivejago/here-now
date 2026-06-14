@@ -78,7 +78,19 @@ create table if not exists public.events (
   address text,
   image_url text,
   created_by uuid references public.profiles(id) on delete set null,
-  status public.event_status not null default 'pending',
+  moderation_status public.event_status not null default 'pending',
+  status text not null default 'upcoming'
+    check (status in ('live_now', 'upcoming', 'ongoing', 'expired', 'cancelled')),
+  event_type text not null default 'temporary'
+    check (event_type in ('temporary', 'recurring', 'permanent', 'private')),
+  visibility text not null default 'public'
+    check (visibility in ('public', 'password', 'link_only', 'private')),
+  password_hash text,
+  source_type text not null default 'user'
+    check (source_type in ('user', 'api', 'partner', 'manual')),
+  source_id text,
+  confidence_score numeric(3, 2) not null default 1
+    check (confidence_score >= 0 and confidence_score <= 1),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint events_end_after_start check (end_date is null or end_date >= start_date)
@@ -106,6 +118,37 @@ create table if not exists public.analytics_events (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.event_sources (
+  id uuid primary key default gen_random_uuid(),
+  provider text not null,
+  name text not null,
+  source_type text not null default 'api'
+    check (source_type in ('user', 'api', 'partner', 'manual')),
+  base_url text,
+  api_key_env text,
+  enabled boolean not null default false,
+  config jsonb not null default '{}'::jsonb,
+  last_imported_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(provider, name)
+);
+
+create table if not exists public.raw_events (
+  id uuid primary key default gen_random_uuid(),
+  source_id uuid not null references public.event_sources(id) on delete cascade,
+  external_id text not null,
+  raw_payload jsonb not null,
+  normalized_event_id uuid references public.events(id) on delete set null,
+  import_status text not null default 'pending'
+    check (import_status in ('pending', 'normalized', 'duplicate', 'failed')),
+  error_message text,
+  payload_hash text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique(source_id, external_id)
+);
+
 create index if not exists profiles_role_idx on public.profiles(role);
 create index if not exists cities_slug_idx on public.cities(slug);
 create index if not exists cities_active_idx on public.cities(is_active);
@@ -118,11 +161,20 @@ create index if not exists events_city_idx on public.events(city_id);
 create index if not exists events_category_idx on public.events(category_id);
 create index if not exists events_start_date_idx on public.events(start_date);
 create index if not exists events_status_idx on public.events(status);
+create index if not exists events_moderation_status_idx on public.events(moderation_status);
+create index if not exists events_visibility_idx on public.events(visibility);
+create index if not exists events_event_type_idx on public.events(event_type);
+create index if not exists events_source_type_idx on public.events(source_type);
 create index if not exists events_created_by_idx on public.events(created_by);
 create index if not exists events_lat_lng_idx on public.events(latitude, longitude);
 create index if not exists events_location_gix on public.events using gist(location);
 create index if not exists analytics_event_name_idx on public.analytics_events(event_name);
 create index if not exists analytics_created_at_idx on public.analytics_events(created_at);
+create index if not exists event_sources_provider_idx on public.event_sources(provider);
+create index if not exists event_sources_enabled_idx on public.event_sources(enabled);
+create index if not exists raw_events_source_idx on public.raw_events(source_id);
+create index if not exists raw_events_external_idx on public.raw_events(external_id);
+create index if not exists raw_events_status_idx on public.raw_events(import_status);
 
 create or replace function public.set_updated_at()
 returns trigger
@@ -157,6 +209,16 @@ for each row execute function public.set_updated_at();
 drop trigger if exists set_events_updated_at on public.events;
 create trigger set_events_updated_at
 before update on public.events
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_event_sources_updated_at on public.event_sources;
+create trigger set_event_sources_updated_at
+before update on public.event_sources
+for each row execute function public.set_updated_at();
+
+drop trigger if exists set_raw_events_updated_at on public.raw_events;
+create trigger set_raw_events_updated_at
+before update on public.raw_events
 for each row execute function public.set_updated_at();
 
 create or replace function public.handle_new_user()
@@ -254,6 +316,8 @@ alter table public.clubs enable row level security;
 alter table public.events enable row level security;
 alter table public.event_images enable row level security;
 alter table public.analytics_events enable row level security;
+alter table public.event_sources enable row level security;
+alter table public.raw_events enable row level security;
 
 drop policy if exists "Profiles are visible to owner or admin" on public.profiles;
 create policy "Profiles are visible to owner or admin"
@@ -326,26 +390,34 @@ with check (public.is_admin());
 drop policy if exists "Approved events are readable" on public.events;
 create policy "Approved events are readable"
 on public.events for select
-using (status = 'approved' or created_by = auth.uid() or public.is_admin());
+using (
+  (
+    moderation_status = 'approved'
+    and visibility in ('public', 'password', 'link_only')
+    and status <> 'cancelled'
+  )
+  or created_by = auth.uid()
+  or public.is_admin()
+);
 
 drop policy if exists "Users create pending events" on public.events;
 create policy "Users create pending events"
 on public.events for insert
 to authenticated
-with check (created_by = auth.uid() and status = 'pending');
+with check (created_by = auth.uid() and moderation_status = 'pending');
 
 drop policy if exists "Users update own pending events" on public.events;
 create policy "Users update own pending events"
 on public.events for update
 to authenticated
-using (created_by = auth.uid() and status = 'pending')
-with check (created_by = auth.uid() and status = 'pending');
+using (created_by = auth.uid() and moderation_status = 'pending')
+with check (created_by = auth.uid() and moderation_status = 'pending');
 
 drop policy if exists "Users delete own pending events" on public.events;
 create policy "Users delete own pending events"
 on public.events for delete
 to authenticated
-using (created_by = auth.uid() and status = 'pending');
+using (created_by = auth.uid() and moderation_status = 'pending');
 
 drop policy if exists "Admins manage events" on public.events;
 create policy "Admins manage events"
@@ -362,7 +434,11 @@ using (
     select 1
     from public.events
     where events.id = event_images.event_id
-      and (events.status = 'approved' or events.created_by = auth.uid() or public.is_admin())
+      and (
+        events.moderation_status = 'approved'
+        or events.created_by = auth.uid()
+        or public.is_admin()
+      )
   )
 );
 
@@ -376,7 +452,7 @@ using (
     from public.events
     where events.id = event_images.event_id
       and events.created_by = auth.uid()
-      and events.status = 'pending'
+      and events.moderation_status = 'pending'
   )
 )
 with check (
@@ -385,9 +461,23 @@ with check (
     from public.events
     where events.id = event_images.event_id
       and events.created_by = auth.uid()
-      and events.status = 'pending'
+      and events.moderation_status = 'pending'
   )
 );
+
+drop policy if exists "Admins manage event sources" on public.event_sources;
+create policy "Admins manage event sources"
+on public.event_sources for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
+
+drop policy if exists "Admins manage raw events" on public.raw_events;
+create policy "Admins manage raw events"
+on public.raw_events for all
+to authenticated
+using (public.is_admin())
+with check (public.is_admin());
 
 drop policy if exists "Admins manage event images" on public.event_images;
 create policy "Admins manage event images"

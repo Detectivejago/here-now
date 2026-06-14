@@ -2,10 +2,11 @@
 
 import Image from "next/image";
 import L from "leaflet";
-import { CalendarDays, MapPin } from "lucide-react";
+import { CalendarDays, Lock, MapPin } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import { trackAnalytics } from "@/lib/analytics";
+import { getLifecycleStatus, isPasswordLocked } from "@/lib/events/filters";
 import type { Category, City, EventRecord, Locale } from "@/lib/types";
 import { formatEventDate } from "@/lib/utils/date";
 import { getCityBoundsTuple } from "@/lib/utils/geo";
@@ -76,6 +77,8 @@ export default function EventMap({ city, categories, events, locale, focusKey }:
         {events.map((event) => {
           const category = event.categories ?? categoryById.get(event.category_id);
           const markerColor = category?.color ?? "#FF6B61";
+          const isLocked = isPasswordLocked(event);
+          const lifecycle = getLifecycleStatus(event);
 
           return (
             <Marker
@@ -106,11 +109,20 @@ export default function EventMap({ city, categories, events, locale, focusKey }:
                   ) : null}
 
                   <div className="event-popup-body">
-                    <h2 className="event-popup-title">{event.title}</h2>
+                    <div className="event-popup-heading">
+                      <h2 className="event-popup-title">{event.title}</h2>
+                      {isLocked ? (
+                        <span className="locked-badge">
+                          <Lock size={13} aria-hidden="true" />
+                          {locale === "it" ? "Privato" : "Private"}
+                        </span>
+                      ) : null}
+                    </div>
                     <div className="event-popup-meta">
                       <span style={{ color: markerColor, fontWeight: 900 }}>
                         {categoryName(category, locale)}
                       </span>
+                      <span>{lifecycle === "live_now" ? "Live now" : lifecycle}</span>
                       <span>
                         <CalendarDays size={14} aria-hidden="true" />{" "}
                         {formatEventDate(event.start_date, locale)}
@@ -121,7 +133,13 @@ export default function EventMap({ city, categories, events, locale, focusKey }:
                         </span>
                       ) : null}
                     </div>
-                    <p className="event-popup-description">{event.description}</p>
+                    <p className="event-popup-description">
+                      {isLocked
+                        ? locale === "it"
+                          ? "Evento visibile ma protetto da password."
+                          : "Visible event, protected by password."
+                        : event.description}
+                    </p>
                   </div>
                 </article>
               </Popup>

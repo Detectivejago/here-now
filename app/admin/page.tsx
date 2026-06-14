@@ -9,6 +9,7 @@ import {
   saveEvent,
   updateEventStatus
 } from "@/app/admin/actions";
+import { getLifecycleStatus, getModerationStatus } from "@/lib/events/filters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Category, City, EventRecord } from "@/lib/types";
 
@@ -69,9 +70,7 @@ export default async function AdminPage() {
     { data: events },
     { data: categories },
     { data: cities },
-    { data: analyticsRows },
-    { count: approvedCount },
-    { count: pendingCount }
+    { data: analyticsRows }
   ] = await Promise.all([
     supabase
       .from("events")
@@ -84,14 +83,14 @@ export default async function AdminPage() {
       .from("analytics_events")
       .select("event_name")
       .gte("created_at", new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString())
-      .limit(1000),
-    supabase.from("events").select("*", { count: "exact", head: true }).eq("status", "approved"),
-    supabase.from("events").select("*", { count: "exact", head: true }).eq("status", "pending")
+      .limit(1000)
   ]);
 
   const typedCategories = (categories ?? []) as Category[];
   const typedCities = (cities ?? []) as City[];
   const typedEvents = (events ?? []) as EventRecord[];
+  const approvedCount = typedEvents.filter((event) => getModerationStatus(event) === "approved").length;
+  const pendingCount = typedEvents.filter((event) => getModerationStatus(event) === "pending").length;
   const firstCity = typedCities[0];
   const firstCategory = typedCategories[0];
 
@@ -114,11 +113,11 @@ export default async function AdminPage() {
             <h2>Analytics base</h2>
             <div className="metric-grid">
               <div className="metric">
-                <strong>{approvedCount ?? 0}</strong>
+                <strong>{approvedCount}</strong>
                 <span>eventi approvati</span>
               </div>
               <div className="metric">
-                <strong>{pendingCount ?? 0}</strong>
+                <strong>{pendingCount}</strong>
                 <span>eventi pending</span>
               </div>
               <div className="metric">
@@ -219,12 +218,15 @@ export default async function AdminPage() {
                 <article className="pending-event event-admin-card" key={event.id}>
                   <div className="event-admin-heading">
                     <h3>{event.title}</h3>
-                    <span className={`status-badge ${event.status}`}>{event.status}</span>
+                    <span className={`status-badge ${getModerationStatus(event)}`}>
+                      {getModerationStatus(event)}
+                    </span>
                   </div>
                   <p className="event-admin-meta">
                     {event.cities?.name ?? "Citta non impostata"} ·{" "}
                     {event.categories?.name_it ?? "Categoria non impostata"} ·{" "}
-                    {toDateTimeLocal(event.start_date).replace("T", " ")}
+                    {toDateTimeLocal(event.start_date).replace("T", " ")} ·{" "}
+                    {getLifecycleStatus(event)}
                   </p>
                   <form action={saveEvent} className="form-grid">
                     <input type="hidden" name="id" value={event.id} />

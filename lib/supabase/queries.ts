@@ -1,6 +1,8 @@
 import { demoHomeData } from "@/lib/data/demo";
 import { getDemoEventsForFilters } from "@/lib/data/filters";
+import { filterEventsForMap } from "@/lib/events/filters";
 import type { Category, City, EventRecord, HomeData } from "@/lib/types";
+import { isInsideCityBounds, limitEventsForViewport } from "@/lib/utils/geo";
 import { createSupabaseServerClient } from "./server";
 
 function getInitialDemoHomeData(): HomeData {
@@ -43,11 +45,9 @@ export async function getInitialHomeData(): Promise<HomeData> {
   const { data: events, error: eventsError } = await supabase
     .from("events")
     .select("*, cities(*), categories(*)")
-    .eq("status", "approved")
     .eq("city_id", initialCity.id)
-    .gte("start_date", new Date().toISOString())
     .order("start_date", { ascending: true })
-    .limit(80);
+    .limit(120);
 
   if (eventsError) {
     return {
@@ -57,9 +57,13 @@ export async function getInitialHomeData(): Promise<HomeData> {
     };
   }
 
+  const scopedEvents = ((events ?? []) as EventRecord[]).filter((event) =>
+    isInsideCityBounds(event, initialCity)
+  );
+
   return {
     cities: cities as City[],
     categories: categories as Category[],
-    events: (events ?? []) as EventRecord[]
+    events: limitEventsForViewport(filterEventsForMap(scopedEvents, "week"))
   };
 }

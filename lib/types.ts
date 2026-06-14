@@ -1,6 +1,18 @@
 export type Locale = "it" | "en";
 
-export type EventStatus = "pending" | "approved" | "rejected";
+export type ModerationStatus = "pending" | "approved" | "rejected";
+
+export type EventType = "temporary" | "recurring" | "permanent" | "private";
+
+export type EventLifecycleStatus = "live_now" | "upcoming" | "ongoing" | "expired" | "cancelled";
+
+export type EventVisibility = "public" | "password" | "link_only" | "private";
+
+export type EventSourceType = "user" | "api" | "partner" | "manual";
+
+export type EventStatus = ModerationStatus;
+
+export type TimeFilter = "now" | "today" | "week" | "permanent";
 
 export type UserRole = "user" | "admin";
 
@@ -46,7 +58,14 @@ export type EventRecord = {
   address: string | null;
   image_url: string | null;
   created_by: string | null;
-  status: EventStatus;
+  status: EventStatus | EventLifecycleStatus;
+  moderation_status?: ModerationStatus | null;
+  event_type?: EventType | null;
+  visibility?: EventVisibility | null;
+  password_hash?: string | null;
+  source_type?: EventSourceType | null;
+  source_id?: string | null;
+  confidence_score?: number | null;
   created_at: string;
   updated_at: string;
   cities?: City | null;

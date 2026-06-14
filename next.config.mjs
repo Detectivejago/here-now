@@ -17,6 +17,16 @@ const nextConfig = {
         protocol: "https",
         hostname: "images.unsplash.com",
         pathname: "/**"
+      },
+      {
+        protocol: "https",
+        hostname: "s1.ticketm.net",
+        pathname: "/**"
+      },
+      {
+        protocol: "https",
+        hostname: "**.ticketmaster.com",
+        pathname: "/**"
       }
     ]
   }

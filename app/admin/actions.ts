@@ -52,7 +52,12 @@ export async function updateEventStatus(formData: FormData) {
     throw new Error("Status evento non valido.");
   }
 
-  await supabase.from("events").update({ status }).eq("id", id);
+  const { error } = await supabase.from("events").update({ moderation_status: status }).eq("id", id);
+
+  if (error) {
+    await supabase.from("events").update({ status }).eq("id", id);
+  }
+
   revalidatePath("/admin");
   revalidatePath("/");
 }
@@ -91,7 +96,7 @@ export async function createAdminEvent(formData: FormData) {
     throw new Error("Status evento non valido.");
   }
 
-  await supabase.from("events").insert({
+  const basePayload = {
     title: requiredString(formData, "title"),
     description: requiredString(formData, "description"),
     city_id: requiredString(formData, "city_id"),
@@ -104,9 +109,28 @@ export async function createAdminEvent(formData: FormData) {
     longitude: Number(requiredString(formData, "longitude")),
     address: String(formData.get("address") ?? "") || null,
     image_url: String(formData.get("image_url") ?? "") || null,
-    created_by: user.id,
-    status
+    created_by: user.id
+  };
+  const { error } = await supabase.from("events").insert({
+    ...basePayload,
+    status: "upcoming",
+    moderation_status: status,
+    event_type: "temporary",
+    visibility: "public",
+    source_type: "manual",
+    confidence_score: 1
   });
+
+  if (error) {
+    const fallback = await supabase.from("events").insert({
+      ...basePayload,
+      status
+    });
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+  }
 
   revalidatePath("/admin");
   revalidatePath("/");

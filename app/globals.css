@@ -104,8 +104,16 @@ a {
 .primary-controls {
   display: grid;
   justify-items: center;
-  gap: 16px;
+  gap: 14px;
   margin-bottom: 22px;
+}
+
+.location-controls {
+  width: min(100%, 420px);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
 }
 
 .pill-button {
@@ -192,6 +200,59 @@ a {
   color: #0876ff;
 }
 
+.locate-button {
+  min-height: 52px;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #ffffff;
+  background: var(--navy);
+  box-shadow: var(--shadow-button);
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.time-filter {
+  width: min(100%, 440px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.55);
+  padding: 8px;
+  border: 1px solid rgba(23, 63, 114, 0.12);
+}
+
+.time-filter button {
+  min-height: 42px;
+  border: 0;
+  border-radius: 999px;
+  color: var(--navy);
+  background: transparent;
+  font-size: 0.92rem;
+  font-weight: 900;
+}
+
+.time-filter button.active {
+  color: #ffffff;
+  background: var(--navy);
+  box-shadow: 0 8px 16px rgba(16, 47, 85, 0.16);
+}
+
+.geo-message {
+  width: min(100%, 420px);
+  margin: -2px 0 0;
+  color: var(--navy-deep);
+  font-size: 0.9rem;
+  line-height: 1.35;
+  text-align: center;
+  font-weight: 750;
+}
+
 .map-section {
   position: relative;
 }
@@ -265,6 +326,25 @@ a {
   margin: 0 0 8px;
   font-size: 1.05rem;
   line-height: 1.16;
+  font-weight: 900;
+}
+
+.event-popup-heading {
+  display: grid;
+  gap: 8px;
+}
+
+.locked-badge {
+  width: fit-content;
+  border-radius: 999px;
+  padding: 5px 8px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: #ffffff;
+  background: var(--navy);
+  font-size: 0.76rem;
+  line-height: 1;
   font-weight: 900;
 }
 
@@ -434,6 +514,11 @@ a {
   color: var(--navy);
 }
 
+.wizard-card {
+  display: grid;
+  gap: 16px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
@@ -513,6 +598,84 @@ a {
 
 .form-message.error {
   color: #b83a35;
+}
+
+.wizard-step-count {
+  margin: 0 0 4px;
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.wizard-progress {
+  display: grid;
+  grid-auto-flow: column;
+  gap: 6px;
+}
+
+.wizard-progress span {
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(23, 63, 114, 0.14);
+}
+
+.wizard-progress span.active {
+  background: var(--coral);
+}
+
+.wizard-body {
+  display: grid;
+  gap: 14px;
+}
+
+.wizard-body h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  line-height: 1.1;
+}
+
+.choice-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.choice-card {
+  min-height: 52px;
+  border: 2px solid rgba(23, 63, 114, 0.14);
+  border-radius: 20px;
+  padding: 0 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--navy);
+  background: #ffffff;
+  font-weight: 900;
+  text-align: left;
+}
+
+.choice-card.active {
+  border-color: var(--navy);
+  box-shadow: 0 0 0 4px rgba(23, 63, 114, 0.1);
+}
+
+.confirm-list {
+  display: grid;
+  gap: 8px;
+  border-radius: 22px;
+  background: #ffffff;
+  padding: 14px;
+}
+
+.confirm-list h4,
+.confirm-list p {
+  margin: 0;
+}
+
+.wizard-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
 }
 
 .login-page,
