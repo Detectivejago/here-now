@@ -66,7 +66,7 @@ export default async function AdminPage() {
   }
 
   const [
-    { data: pendingEvents },
+    { data: events },
     { data: categories },
     { data: cities },
     { data: analyticsRows },
@@ -76,8 +76,8 @@ export default async function AdminPage() {
     supabase
       .from("events")
       .select("*, cities(*), categories(*)")
-      .eq("status", "pending")
-      .order("created_at", { ascending: true }),
+      .order("created_at", { ascending: false })
+      .limit(40),
     supabase.from("categories").select("*").order("sort_order", { ascending: true }),
     supabase.from("cities").select("*").order("name", { ascending: true }),
     supabase
@@ -91,7 +91,7 @@ export default async function AdminPage() {
 
   const typedCategories = (categories ?? []) as Category[];
   const typedCities = (cities ?? []) as City[];
-  const typedPending = (pendingEvents ?? []) as EventRecord[];
+  const typedEvents = (events ?? []) as EventRecord[];
   const firstCity = typedCities[0];
   const firstCategory = typedCategories[0];
 
@@ -208,13 +208,24 @@ export default async function AdminPage() {
           </section>
 
           <section className="admin-card">
-            <h2>Eventi pending</h2>
-            {typedPending.length === 0 ? (
-              <p className="empty-state">Nessun evento in attesa.</p>
+            <div className="admin-card-heading">
+              <h2>Eventi recenti</h2>
+              <p className="admin-hint">Ultimi 40 eventi, inclusi approvati, pending e rifiutati.</p>
+            </div>
+            {typedEvents.length === 0 ? (
+              <p className="empty-state">Nessun evento creato.</p>
             ) : (
-              typedPending.map((event) => (
-                <article className="pending-event" key={event.id}>
-                  <h3>{event.title}</h3>
+              typedEvents.map((event) => (
+                <article className="pending-event event-admin-card" key={event.id}>
+                  <div className="event-admin-heading">
+                    <h3>{event.title}</h3>
+                    <span className={`status-badge ${event.status}`}>{event.status}</span>
+                  </div>
+                  <p className="event-admin-meta">
+                    {event.cities?.name ?? "Citta non impostata"} ·{" "}
+                    {event.categories?.name_it ?? "Categoria non impostata"} ·{" "}
+                    {toDateTimeLocal(event.start_date).replace("T", " ")}
+                  </p>
                   <form action={saveEvent} className="form-grid">
                     <input type="hidden" name="id" value={event.id} />
                     <label className="field">
@@ -270,6 +281,10 @@ export default async function AdminPage() {
                       Indirizzo
                       <input name="address" defaultValue={event.address ?? ""} />
                     </label>
+                    <label className="field">
+                      Immagine URL
+                      <input name="image_url" type="url" defaultValue={event.image_url ?? ""} />
+                    </label>
                     <div className="form-row">
                       <label className="field">
                         Latitudine
@@ -288,6 +303,13 @@ export default async function AdminPage() {
                   </form>
 
                   <div className="admin-actions">
+                    <form action={updateEventStatus}>
+                      <input type="hidden" name="id" value={event.id} />
+                      <input type="hidden" name="status" value="pending" />
+                      <button className="small-button pending" type="submit">
+                        Pending
+                      </button>
+                    </form>
                     <form action={updateEventStatus}>
                       <input type="hidden" name="id" value={event.id} />
                       <input type="hidden" name="status" value="approved" />

@@ -74,7 +74,8 @@ export async function saveEvent(formData: FormData) {
         : null,
       latitude: Number(requiredString(formData, "latitude")),
       longitude: Number(requiredString(formData, "longitude")),
-      address: String(formData.get("address") ?? "") || null
+      address: String(formData.get("address") ?? "") || null,
+      image_url: String(formData.get("image_url") ?? "") || null
     })
     .eq("id", id);
 
