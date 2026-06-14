@@ -2,7 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CalendarDays, Lock, MapPin } from "lucide-react";
-import { getLifecycleStatus, isPasswordLocked } from "@/lib/events/filters";
+import { getTemporalStatus, getTemporalStatusLabel, isPasswordLocked } from "@/lib/events/filters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EventRecord } from "@/lib/types";
 import { formatEventDate } from "@/lib/utils/date";
@@ -33,6 +33,7 @@ export default async function EventPage({ params }: EventPageProps) {
 
   const typedEvent = event as EventRecord;
   const locked = isPasswordLocked(typedEvent);
+  const temporalStatus = getTemporalStatus(typedEvent);
 
   return (
     <main className="event-page">
@@ -58,7 +59,7 @@ export default async function EventPage({ params }: EventPageProps) {
           </div>
           <div className="event-popup-meta">
             <span>{typedEvent.categories?.name_it ?? "Evento"}</span>
-            <span>{getLifecycleStatus(typedEvent)}</span>
+            <span>{getTemporalStatusLabel(typedEvent, temporalStatus, "it")}</span>
             <span>
               <CalendarDays size={14} aria-hidden="true" /> {formatEventDate(typedEvent.start_date, "it")}
             </span>

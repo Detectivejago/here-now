@@ -1,40 +1,77 @@
-import type { EventRecord, TimeFilter } from "@/lib/types";
+import type { EventRecord, EventTemporalStatus, Locale, TimeFilter } from "@/lib/types";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
+const STARTING_SOON_MS = 90 * 60 * 1000;
 
 export function getModerationStatus(event: EventRecord) {
   return event.moderation_status ?? (event.status === "approved" ? "approved" : event.status);
 }
 
-export function getLifecycleStatus(event: EventRecord, now = new Date()) {
-  if (event.status === "cancelled") {
-    return "cancelled";
+function getEventEndDate(event: EventRecord) {
+  if (event.end_date) {
+    return new Date(event.end_date);
   }
 
-  if (event.status === "live_now" || event.status === "ongoing" || event.status === "expired") {
-    return event.status;
+  if (event.event_type === "permanent") {
+    return null;
+  }
+
+  return new Date(new Date(event.start_date).getTime() + 4 * HOUR_MS);
+}
+
+function isMultiDay(start: Date, end: Date | null) {
+  if (!end) {
+    return false;
+  }
+
+  return (
+    end.getTime() - start.getTime() >= DAY_MS ||
+    start.getFullYear() !== end.getFullYear() ||
+    start.getMonth() !== end.getMonth() ||
+    start.getDate() !== end.getDate()
+  );
+}
+
+export function getTemporalStatus(event: EventRecord, now = new Date()): EventTemporalStatus {
+  if (event.event_type === "permanent") {
+    return "permanent";
+  }
+
+  if (event.status === "cancelled" || event.status === "expired") {
+    return "ended";
   }
 
   const start = new Date(event.start_date);
-  const end = event.end_date ? new Date(event.end_date) : null;
+  const end = getEventEndDate(event);
 
   if (Number.isNaN(start.getTime())) {
     return "upcoming";
   }
 
   if (end && end < now) {
-    return "expired";
-  }
-
-  if (!end && event.event_type !== "permanent" && start.getTime() + 4 * 60 * 60 * 1000 < now.getTime()) {
-    return "expired";
+    return "ended";
   }
 
   if (start <= now && (!end || end >= now)) {
-    return "live_now";
+    return isMultiDay(start, end) ? "ongoing" : "live_now";
+  }
+
+  const startsInMs = start.getTime() - now.getTime();
+
+  if (startsInMs >= 0 && startsInMs <= STARTING_SOON_MS) {
+    return "starting_soon";
+  }
+
+  if (isSameDay(start, now)) {
+    return "today_later";
   }
 
   return "upcoming";
+}
+
+export function getLifecycleStatus(event: EventRecord, now = new Date()) {
+  return getTemporalStatus(event, now);
 }
 
 export function isMapVisible(event: EventRecord) {
@@ -51,8 +88,7 @@ export function isApprovedForPublicMap(event: EventRecord, now = new Date()) {
   return (
     getModerationStatus(event) === "approved" &&
     isMapVisible(event) &&
-    getLifecycleStatus(event, now) !== "expired" &&
-    getLifecycleStatus(event, now) !== "cancelled"
+    getTemporalStatus(event, now) !== "ended"
   );
 }
 
@@ -66,24 +102,32 @@ function isSameDay(date: Date, now: Date) {
 
 export function matchesTimeFilter(event: EventRecord, filter: TimeFilter, now = new Date()) {
   const eventType = event.event_type ?? "temporary";
-  const lifecycle = getLifecycleStatus(event, now);
+  const temporalStatus = getTemporalStatus(event, now);
   const start = new Date(event.start_date);
-  const end = event.end_date ? new Date(event.end_date) : null;
+  const end = getEventEndDate(event);
+
+  if (temporalStatus === "ended" || Number.isNaN(start.getTime())) {
+    return false;
+  }
+
+  if (filter === "private") {
+    return isPasswordLocked(event);
+  }
 
   if (filter === "permanent") {
-    return eventType === "permanent";
+    return temporalStatus === "permanent";
   }
 
   if (eventType === "permanent") {
     return false;
   }
 
-  if (lifecycle === "expired" || lifecycle === "cancelled" || Number.isNaN(start.getTime())) {
-    return false;
-  }
-
   if (filter === "now") {
-    return start <= now && (!end || end >= now);
+    return (
+      temporalStatus === "live_now" ||
+      temporalStatus === "ongoing" ||
+      temporalStatus === "starting_soon"
+    );
   }
 
   if (filter === "today") {
@@ -100,4 +144,46 @@ export function filterEventsForMap(
   now = new Date()
 ) {
   return events.filter((event) => isApprovedForPublicMap(event, now) && matchesTimeFilter(event, filter, now));
+}
+
+export function getTemporalStatusLabel(
+  event: EventRecord,
+  status: EventTemporalStatus,
+  locale: Locale,
+  now = new Date()
+) {
+  const start = new Date(event.start_date);
+  const end = getEventEndDate(event);
+  const formatter = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
+    weekday: "long"
+  });
+
+  if (status === "live_now") {
+    return locale === "it" ? "Ora" : "Now";
+  }
+
+  if (status === "starting_soon") {
+    const minutes = Math.max(1, Math.round((start.getTime() - now.getTime()) / 60000));
+    return locale === "it" ? `Tra ${minutes} min` : `In ${minutes} min`;
+  }
+
+  if (status === "today_later") {
+    return locale === "it" ? "Piu tardi oggi" : "Later today";
+  }
+
+  if (status === "ongoing" && end) {
+    const day = formatter.format(end);
+    return locale === "it" ? `Fino a ${day}` : `Until ${day}`;
+  }
+
+  if (status === "permanent") {
+    return locale === "it" ? "Sempre attivo" : "Always on";
+  }
+
+  if (status === "ended") {
+    return locale === "it" ? "Terminato" : "Ended";
+  }
+
+  const day = formatter.format(start);
+  return locale === "it" ? `Prossimi giorni · ${day}` : `Upcoming · ${day}`;
 }

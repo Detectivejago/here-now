@@ -1,15 +1,18 @@
 "use client";
 
-import Image from "next/image";
+import Link from "next/link";
 import L from "leaflet";
-import { CalendarDays, Lock, MapPin } from "lucide-react";
+import { Lock, MapPin } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import { trackAnalytics } from "@/lib/analytics";
-import { getLifecycleStatus, isPasswordLocked } from "@/lib/events/filters";
-import type { Category, City, EventRecord, Locale } from "@/lib/types";
-import { formatEventDate } from "@/lib/utils/date";
-import { getCityBoundsTuple } from "@/lib/utils/geo";
+import {
+  getTemporalStatus,
+  getTemporalStatusLabel,
+  isPasswordLocked
+} from "@/lib/events/filters";
+import type { Category, City, EventRecord, EventTemporalStatus, Locale } from "@/lib/types";
+import { getCityBoundsTuple, getDistanceKm } from "@/lib/utils/geo";
 
 type EventMapProps = {
   city: City;
@@ -17,6 +20,7 @@ type EventMapProps = {
   events: EventRecord[];
   locale: Locale;
   focusKey: number;
+  userLocation: { latitude: number; longitude: number } | null;
 };
 
 function MapUpdater({ city, focusKey }: { city: City; focusKey: number }) {
@@ -39,17 +43,41 @@ function categoryName(category: Category | null | undefined, locale: Locale) {
   return locale === "it" ? category.name_it : category.name_en;
 }
 
-function createMarkerIcon(color: string) {
+function createMarkerIcon(color: string, status: EventTemporalStatus, isLocked: boolean) {
   return L.divIcon({
-    className: "event-dot-marker",
-    html: `<div class="event-dot" style="--marker-color:${color}"></div>`,
-    iconSize: [26, 26],
-    iconAnchor: [13, 13],
+    className: `event-dot-marker marker-${status}${isLocked ? " marker-private" : ""}`,
+    html: `<div class="event-dot status-${status}${isLocked ? " is-private" : ""}" style="--marker-color:${color}"><span class="event-lock"></span></div>`,
+    iconSize: [34, 34],
+    iconAnchor: [17, 17],
     popupAnchor: [0, -12]
   });
 }
 
-export default function EventMap({ city, categories, events, locale, focusKey }: EventMapProps) {
+function formatDistance(distanceKm: number, locale: Locale) {
+  if (distanceKm < 1) {
+    return `${Math.round(distanceKm * 1000)} m`;
+  }
+
+  return `${distanceKm.toLocaleString(locale === "it" ? "it-IT" : "en-US", {
+    maximumFractionDigits: distanceKm < 10 ? 1 : 0
+  })} km`;
+}
+
+function sourceLabel(event: EventRecord, locale: Locale) {
+  const source = event.source_type ?? "manual";
+  const confidence = Math.round((event.confidence_score ?? 1) * 100);
+
+  return locale === "it" ? `Fonte ${source} · ${confidence}%` : `Source ${source} · ${confidence}%`;
+}
+
+export default function EventMap({
+  city,
+  categories,
+  events,
+  locale,
+  focusKey,
+  userLocation
+}: EventMapProps) {
   const cityBounds = getCityBoundsTuple(city);
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
@@ -78,36 +106,32 @@ export default function EventMap({ city, categories, events, locale, focusKey }:
           const category = event.categories ?? categoryById.get(event.category_id);
           const markerColor = category?.color ?? "#FF6B61";
           const isLocked = isPasswordLocked(event);
-          const lifecycle = getLifecycleStatus(event);
+          const temporalStatus = getTemporalStatus(event);
+          const temporalLabel = getTemporalStatusLabel(event, temporalStatus, locale);
+          const distance = userLocation
+            ? getDistanceKm(userLocation, {
+                latitude: event.latitude,
+                longitude: event.longitude
+              })
+            : null;
 
           return (
             <Marker
               key={event.id}
               position={[event.latitude, event.longitude]}
-              icon={createMarkerIcon(markerColor)}
+              icon={createMarkerIcon(markerColor, temporalStatus, isLocked)}
               eventHandlers={{
                 click: () =>
                   trackAnalytics("event_clicked", {
                     event_id: event.id,
                     city_id: event.city_id,
-                    category_id: event.category_id
+                    category_id: event.category_id,
+                    temporal_status: temporalStatus
                   })
               }}
             >
               <Popup closeButton>
-                <article className="event-popup">
-                  {event.image_url ? (
-                    <div className="event-popup-image">
-                      <Image
-                        src={event.image_url}
-                        alt=""
-                        fill
-                        sizes="250px"
-                        style={{ objectFit: "cover" }}
-                      />
-                    </div>
-                  ) : null}
-
+                <article className="event-popup mini-event-card">
                   <div className="event-popup-body">
                     <div className="event-popup-heading">
                       <h2 className="event-popup-title">{event.title}</h2>
@@ -122,24 +146,18 @@ export default function EventMap({ city, categories, events, locale, focusKey }:
                       <span style={{ color: markerColor, fontWeight: 900 }}>
                         {categoryName(category, locale)}
                       </span>
-                      <span>{lifecycle === "live_now" ? "Live now" : lifecycle}</span>
-                      <span>
-                        <CalendarDays size={14} aria-hidden="true" />{" "}
-                        {formatEventDate(event.start_date, locale)}
-                      </span>
+                      <span>{temporalLabel}</span>
                       {event.address ? (
                         <span>
                           <MapPin size={14} aria-hidden="true" /> {event.address}
                         </span>
                       ) : null}
+                      {distance !== null ? <span>{formatDistance(distance, locale)}</span> : null}
+                      <span>{sourceLabel(event, locale)}</span>
                     </div>
-                    <p className="event-popup-description">
-                      {isLocked
-                        ? locale === "it"
-                          ? "Evento visibile ma protetto da password."
-                          : "Visible event, protected by password."
-                        : event.description}
-                    </p>
+                    <Link className="detail-button" href={`/event/${event.id}`}>
+                      {locale === "it" ? "Apri dettagli" : "Open details"}
+                    </Link>
                   </div>
                 </article>
               </Popup>

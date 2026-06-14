@@ -243,6 +243,10 @@ a {
   box-shadow: 0 8px 16px rgba(16, 47, 85, 0.16);
 }
 
+.time-filter button:last-child:nth-child(odd) {
+  grid-column: 1 / -1;
+}
+
 .geo-message {
   width: min(100%, 420px);
   margin: -2px 0 0;
@@ -301,7 +305,7 @@ a {
 
 .leaflet-popup-content {
   margin: 0;
-  width: 250px !important;
+  width: 260px !important;
 }
 
 .event-popup {
@@ -370,14 +374,112 @@ a {
 }
 
 .event-dot {
+  position: relative;
   width: 26px;
   height: 26px;
   border-radius: 999px;
   background: var(--marker-color);
   border: 4px solid #ffffff;
+  opacity: 0.96;
   box-shadow:
     0 7px 16px rgba(16, 47, 85, 0.25),
     0 0 0 5px color-mix(in srgb, var(--marker-color) 24%, transparent);
+}
+
+.event-dot.status-live_now {
+  width: 30px;
+  height: 30px;
+  box-shadow:
+    0 8px 18px rgba(16, 47, 85, 0.28),
+    0 0 0 7px color-mix(in srgb, var(--marker-color) 28%, transparent),
+    0 0 24px color-mix(in srgb, var(--marker-color) 62%, transparent);
+  animation: live-marker-pulse 1.55s ease-out infinite;
+}
+
+.event-dot.status-starting_soon {
+  box-shadow:
+    0 7px 16px rgba(16, 47, 85, 0.22),
+    0 0 0 9px color-mix(in srgb, var(--marker-color) 18%, transparent);
+}
+
+.event-dot.status-upcoming {
+  width: 21px;
+  height: 21px;
+  opacity: 0.64;
+  box-shadow:
+    0 5px 12px rgba(16, 47, 85, 0.16),
+    0 0 0 4px color-mix(in srgb, var(--marker-color) 14%, transparent);
+}
+
+.event-dot.status-ongoing::before {
+  content: "";
+  position: absolute;
+  inset: -9px;
+  border: 2px solid color-mix(in srgb, var(--marker-color) 72%, #ffffff);
+  border-radius: 999px;
+}
+
+.event-dot.status-permanent {
+  background: var(--navy);
+  box-shadow:
+    0 7px 16px rgba(16, 47, 85, 0.2),
+    0 0 0 5px rgba(23, 63, 114, 0.18);
+}
+
+.event-lock {
+  display: none;
+}
+
+.event-dot.is-private .event-lock {
+  position: absolute;
+  top: -6px;
+  right: -6px;
+  width: 13px;
+  height: 10px;
+  display: block;
+  border: 2px solid #ffffff;
+  border-radius: 3px;
+  background: var(--navy);
+  box-shadow: 0 3px 7px rgba(16, 47, 85, 0.22);
+}
+
+.event-dot.is-private .event-lock::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: -7px;
+  width: 5px;
+  height: 7px;
+  border: 2px solid #ffffff;
+  border-bottom: 0;
+  border-radius: 999px 999px 0 0;
+}
+
+.detail-button {
+  width: 100%;
+  min-height: 40px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  background: var(--navy);
+  font-weight: 900;
+  text-decoration: none;
+}
+
+@keyframes live-marker-pulse {
+  0% {
+    transform: scale(1);
+  }
+
+  62% {
+    transform: scale(1.16);
+  }
+
+  100% {
+    transform: scale(1);
+  }
 }
 
 .map-badge {

@@ -6,13 +6,22 @@ export type EventType = "temporary" | "recurring" | "permanent" | "private";
 
 export type EventLifecycleStatus = "live_now" | "upcoming" | "ongoing" | "expired" | "cancelled";
 
+export type EventTemporalStatus =
+  | "live_now"
+  | "starting_soon"
+  | "today_later"
+  | "upcoming"
+  | "ongoing"
+  | "permanent"
+  | "ended";
+
 export type EventVisibility = "public" | "password" | "link_only" | "private";
 
 export type EventSourceType = "user" | "api" | "partner" | "manual";
 
 export type EventStatus = ModerationStatus;
 
-export type TimeFilter = "now" | "today" | "week" | "permanent";
+export type TimeFilter = "now" | "today" | "week" | "permanent" | "private";
 
 export type UserRole = "user" | "admin";
 

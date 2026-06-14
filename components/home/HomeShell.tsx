@@ -43,7 +43,8 @@ const copy = {
       now: "Adesso",
       today: "Oggi",
       week: "Questa settimana",
-      permanent: "Permanenti"
+      permanent: "Permanenti",
+      private: "Privati"
     }
   },
   en: {
@@ -62,12 +63,13 @@ const copy = {
       now: "Now",
       today: "Today",
       week: "This week",
-      permanent: "Permanent"
+      permanent: "Permanent",
+      private: "Private"
     }
   }
 };
 
-const timeFilters: TimeFilter[] = ["now", "today", "week", "permanent"];
+const timeFilters: TimeFilter[] = ["now", "today", "week", "permanent", "private"];
 const supportedCityDistanceKm = 75;
 
 export default function HomeShell({ initialData }: HomeShellProps) {
@@ -84,6 +86,9 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isCreateClubOpen, setIsCreateClubOpen] = useState(false);
   const [geoMessage, setGeoMessage] = useState("");
+  const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(
+    null
+  );
   const [isLocating, setIsLocating] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
   const firstFilterRun = useRef(true);
@@ -189,12 +194,17 @@ export default function HomeShell({ initialData }: HomeShellProps) {
 
     navigator.geolocation.getCurrentPosition(
       async (position) => {
-        const nearest = findNearestSupportedCity(cities, {
+        const coordinates = {
           latitude: position.coords.latitude,
           longitude: position.coords.longitude
+        };
+        const nearest = findNearestSupportedCity(cities, {
+          latitude: coordinates.latitude,
+          longitude: coordinates.longitude
         });
 
         setIsLocating(false);
+        setUserLocation(coordinates);
 
         if (!nearest) {
           setGeoMessage(currentCopy.geoDenied);
@@ -298,6 +308,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
               events={events}
               locale={locale}
               focusKey={focusKey}
+              userLocation={userLocation}
             />
           ) : (
             <div className="map-shell loading">Configura almeno una città.</div>
