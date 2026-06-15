@@ -225,23 +225,32 @@ export default function HomeShell({ initialData }: HomeShellProps) {
         return;
       }
 
-      let query = supabase
-        .from("events")
-        .select(mapEventSelect)
-        .eq("city_id", city.id)
-        .order("start_date", { ascending: true })
-        .limit(180);
-
-      if (categoryId) {
-        query = query.eq("category_id", categoryId);
-      }
-
-      const result = await query;
+      const result = await supabase.rpc("get_public_map_events", {
+        city_id_input: city.id,
+        category_id_input: categoryId
+      });
       let resultData: unknown[] | null = result.data;
       let resultError = result.error;
 
       if (resultError) {
-        let fallbackQuery = supabase
+        let directQuery = supabase
+          .from("events")
+          .select(mapEventSelect)
+          .eq("city_id", city.id)
+          .order("start_date", { ascending: true })
+          .limit(180);
+
+        if (categoryId) {
+          directQuery = directQuery.eq("category_id", categoryId);
+        }
+
+        const directResult = await directQuery;
+        resultData = directResult.data;
+        resultError = directResult.error;
+      }
+
+      if (resultError) {
+        let legacyQuery = supabase
           .from("events")
           .select(legacyMapEventSelect)
           .eq("city_id", city.id)
@@ -249,12 +258,12 @@ export default function HomeShell({ initialData }: HomeShellProps) {
           .limit(180);
 
         if (categoryId) {
-          fallbackQuery = fallbackQuery.eq("category_id", categoryId);
+          legacyQuery = legacyQuery.eq("category_id", categoryId);
         }
 
-        const fallbackResult = await fallbackQuery;
-        resultData = fallbackResult.data;
-        resultError = fallbackResult.error;
+        const legacyResult = await legacyQuery;
+        resultData = legacyResult.data;
+        resultError = legacyResult.error;
       }
 
       if (resultError) {

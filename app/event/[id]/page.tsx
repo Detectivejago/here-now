@@ -12,33 +12,66 @@ import { formatEventDate } from "@/lib/utils/date";
 
 type EventPageProps = {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ token?: string | string[] }>;
 };
 
 export const dynamic = "force-dynamic";
 
-export default async function EventPage({ params }: EventPageProps) {
+function readToken(value: string | string[] | undefined) {
+  if (Array.isArray(value)) {
+    return value[0] ?? null;
+  }
+
+  return value ?? null;
+}
+
+export default async function EventPage({ params, searchParams }: EventPageProps) {
   const { id } = await params;
+  const token = readToken((await searchParams)?.token);
   const supabase = await createSupabaseServerClient();
 
   if (!supabase) {
     notFound();
   }
 
-  let eventResult = await supabase
-    .from("events")
-    .select(publicEventSelect)
-    .eq("id", id)
-    .single();
+  let event: unknown | null = null;
 
-  if (eventResult.error) {
-    eventResult = await supabase
-      .from("events")
-      .select(legacyPublicEventSelect)
-      .eq("id", id)
+  if (token) {
+    const linkResult = await supabase
+      .rpc("get_link_only_event", {
+        event_id_input: id,
+        secret_token_input: token
+      })
       .single();
-  }
 
-  const event = eventResult.data;
+    event = linkResult.data;
+  } else {
+    const shellResult = await supabase
+      .rpc("get_event_detail_shell", {
+        event_id_input: id
+      })
+      .single();
+
+    event = shellResult.data;
+
+    if (!event) {
+      let eventResult = await supabase
+        .from("events")
+        .select(publicEventSelect)
+        .eq("id", id)
+        .single();
+
+      if (eventResult.error) {
+        eventResult = await supabase
+          .from("events")
+          .select(legacyPublicEventSelect)
+          .eq("id", id)
+          .single();
+      }
+
+      event = eventResult.data;
+    }
+  }
 
   if (!event) {
     notFound();

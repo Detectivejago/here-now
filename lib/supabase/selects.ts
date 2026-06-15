@@ -102,6 +102,11 @@ export const mapEventSelect = `
   categories(*)
 `;
 
+export const createdEventSelect = `
+  id,
+  secret_token
+`;
+
 export const legacyPublicEventSelect = publicEventSelect.replace("  quality_score,\n", "");
 
 export const legacyMapEventSelect = mapEventSelect.replace("  quality_score,\n", "");

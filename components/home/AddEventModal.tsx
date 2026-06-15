@@ -2,6 +2,7 @@
 
 import { CalendarDays, Check, ChevronLeft, ChevronRight, Lock, MapPin, X } from "lucide-react";
 import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
+import { hashEventPassword } from "@/app/event-password/actions";
 import PillButton from "@/components/ui/PillButton";
 import { trackAnalytics } from "@/lib/analytics";
 import {
@@ -11,6 +12,7 @@ import {
 } from "@/lib/data/locationPresets";
 import { calculateEventQualityScore } from "@/lib/events/quality";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { createdEventSelect } from "@/lib/supabase/selects";
 import type { Category, City, EventVisibility, Locale } from "@/lib/types";
 
 type AddEventModalProps = {
@@ -71,10 +73,15 @@ const labels = {
     missingSupabase: "Configura Supabase per creare eventi reali.",
     authNeeded: "Accedi per proporre un evento.",
     success: "Evento inviato: resterà pending finché un admin lo approva.",
+    successLink: "Evento nascosto inviato. Conserva questo link: funzionerà dopo l'approvazione.",
     failed: "Non sono riuscito a salvare l'evento. Controlla i campi e riprova.",
+    passwordRequired: "Inserisci una password per proteggere l'evento.",
+    passwordHashFailed: "Non riesco a proteggere la password ora. Riprova dalla versione HTTPS.",
     passwordHelp: "La password viene salvata come hash. Chi la conosce potrà sbloccare i dettagli.",
-    linkHelp: "Non comparirà sulla mappa pubblica. La struttura per il link privato è pronta.",
-    noPasswordNeeded: "Questo evento non richiede password."
+    linkHelp: "Non comparirà sulla mappa pubblica. Genererò un link privato da condividere.",
+    noPasswordNeeded: "Questo evento non richiede password.",
+    privateLinkLabel: "Link privato",
+    openLink: "Apri link"
   },
   en: {
     title: "Add event",
@@ -112,10 +119,15 @@ const labels = {
     missingSupabase: "Configure Supabase to create real events.",
     authNeeded: "Sign in to suggest an event.",
     success: "Event submitted: it stays pending until an admin approves it.",
+    successLink: "Hidden event submitted. Keep this link: it will work after approval.",
     failed: "I could not save the event. Check the fields and try again.",
+    passwordRequired: "Add a password to protect the event.",
+    passwordHashFailed: "I cannot protect this password right now. Try from the HTTPS version.",
     passwordHelp: "The password is stored as a hash. People who know it can unlock details.",
-    linkHelp: "It will not appear on the public map. The private link structure is ready.",
-    noPasswordNeeded: "This event does not need a password."
+    linkHelp: "It will not appear on the public map. I will generate a private share link.",
+    noPasswordNeeded: "This event does not need a password.",
+    privateLinkLabel: "Private link",
+    openLink: "Open link"
   }
 };
 
@@ -134,17 +146,20 @@ function getPreviousStep(step: WizardStep) {
   return stepOrder[Math.max(index - 1, 0)];
 }
 
-async function hashPassword(password: string) {
-  const data = new TextEncoder().encode(password);
-  const digest = await crypto.subtle.digest("SHA-256", data);
-
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-}
-
 function isMissingColumnError(error: { message?: string } | null, column: string) {
   return Boolean(error?.message?.toLowerCase().includes(column.toLowerCase()));
+}
+
+function getVisibilityLabel(visibility: EventVisibility, locale: Locale) {
+  if (visibility === "password") {
+    return locale === "it" ? "Privato con password" : "Private with password";
+  }
+
+  if (visibility === "link_only") {
+    return locale === "it" ? "Nascosto con link" : "Hidden with link";
+  }
+
+  return locale === "it" ? "Pubblico" : "Public";
 }
 
 function toDateTimeLocal(date: Date) {
@@ -194,6 +209,7 @@ export default function AddEventModal({
   const [visibility, setVisibility] = useState<EventVisibility>("public");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState("");
+  const [privateLink, setPrivateLink] = useState("");
   const [isError, setIsError] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const t = labels[locale];
@@ -259,6 +275,7 @@ export default function AddEventModal({
 
     setIsSaving(true);
     setMessage("");
+    setPrivateLink("");
     setIsError(false);
 
     const supabase = createSupabaseBrowserClient();
@@ -282,7 +299,21 @@ export default function AddEventModal({
       return;
     }
 
-    const passwordHash = visibility === "password" && password ? await hashPassword(password) : null;
+    let passwordHash: string | null = null;
+
+    if (visibility === "password") {
+      const hashResult = await hashEventPassword(password);
+
+      if (!hashResult.ok) {
+        setIsSaving(false);
+        setIsError(true);
+        setMessage(hashResult.reason === "empty" ? t.passwordRequired : t.passwordHashFailed);
+        return;
+      }
+
+      passwordHash = hashResult.passwordHash;
+    }
+
     const basePayload = {
       title,
       description,
@@ -314,8 +345,12 @@ export default function AddEventModal({
       })
     };
 
-    const { error: nextModelError } = await supabase.from("events").insert(nextModelPayload);
+    const {
+      data: createdEvent,
+      error: nextModelError
+    } = await supabase.from("events").insert(nextModelPayload).select(createdEventSelect).single();
     let saved = !nextModelError;
+    let savedEvent = createdEvent as { id?: string; secret_token?: string | null } | null;
 
     if (!saved && isMissingColumnError(nextModelError, "quality_score")) {
       const payloadWithoutQualityScore = {
@@ -328,8 +363,13 @@ export default function AddEventModal({
         source_type: sourceType,
         confidence_score: confidenceScore
       };
-      const retry = await supabase.from("events").insert(payloadWithoutQualityScore);
+      const retry = await supabase
+        .from("events")
+        .insert(payloadWithoutQualityScore)
+        .select(createdEventSelect)
+        .single();
       saved = !retry.error;
+      savedEvent = retry.data as { id?: string; secret_token?: string | null } | null;
     }
 
     if (!saved && isMissingColumnError(nextModelError, "moderation_status")) {
@@ -349,6 +389,13 @@ export default function AddEventModal({
 
     setIsSaving(false);
     trackAnalytics("event_created", { city_id: cityId, category_id: categoryId, visibility });
+    if (visibility === "link_only" && savedEvent?.id && savedEvent.secret_token) {
+      const link = `${window.location.origin}/event/${savedEvent.id}?token=${savedEvent.secret_token}`;
+      setPrivateLink(link);
+      setMessage(t.successLink);
+      return;
+    }
+
     setMessage(t.success);
     setTimeout(onCreated, 700);
   };
@@ -546,12 +593,24 @@ export default function AddEventModal({
               <p>{selectedCity?.name} · {address}</p>
               <p>{startDate.replace("T", " ")} {endDate ? `- ${endDate.replace("T", " ")}` : ""}</p>
               <p>{locale === "it" ? selectedCategory?.name_it : selectedCategory?.name_en}</p>
-              <p>{visibility}</p>
+              <p>{getVisibilityLabel(visibility, locale)}</p>
             </div>
           ) : null}
         </div>
 
         <p className={`form-message ${isError ? "error" : ""}`}>{message}</p>
+
+        {privateLink ? (
+          <div className="private-link-box">
+            <label className="field">
+              {t.privateLinkLabel}
+              <input readOnly value={privateLink} onFocus={(event) => event.currentTarget.select()} />
+            </label>
+            <a className="small-button save" href={privateLink} target="_blank" rel="noreferrer">
+              {t.openLink}
+            </a>
+          </div>
+        ) : null}
 
         <div className="wizard-actions">
           {step !== "title" ? (
@@ -559,7 +618,7 @@ export default function AddEventModal({
               <ChevronLeft size={16} aria-hidden="true" /> {t.back}
             </button>
           ) : null}
-          <PillButton variant="primary" type="submit" disabled={isSaving}>
+          <PillButton variant="primary" type="submit" disabled={isSaving || Boolean(privateLink)}>
             {step === "confirm" ? (
               <>
                 <Check size={17} aria-hidden="true" /> {isSaving ? "..." : t.save}

@@ -91,6 +91,7 @@ export type EventRecord = {
   event_type?: EventType | null;
   visibility?: EventVisibility | null;
   password_hash?: string | null;
+  secret_token?: string | null;
   source_type?: EventSourceType | null;
   source_id?: string | null;
   external_id?: string | null;

@@ -77,24 +77,34 @@ export async function getInitialHomeData(): Promise<HomeData> {
 
   const initialCity = cities.find((city) => city.slug === "milano") ?? cities[0];
 
-  const eventsResult = await supabase
-    .from("events")
-    .select(mapEventSelect)
-    .eq("city_id", initialCity.id)
-    .order("start_date", { ascending: true })
-    .limit(120);
+  const eventsResult = await supabase.rpc("get_public_map_events", {
+    city_id_input: initialCity.id,
+    category_id_input: null
+  });
   let eventsData: unknown[] | null = eventsResult.data;
   let eventsError = eventsResult.error;
 
   if (eventsError) {
-    const fallbackResult = await supabase
+    const directResult = await supabase
+      .from("events")
+      .select(mapEventSelect)
+      .eq("city_id", initialCity.id)
+      .order("start_date", { ascending: true })
+      .limit(120);
+
+    eventsData = directResult.data;
+    eventsError = directResult.error;
+  }
+
+  if (eventsError) {
+    const legacyResult = await supabase
       .from("events")
       .select(legacyMapEventSelect)
       .eq("city_id", initialCity.id)
       .order("start_date", { ascending: true })
       .limit(120);
-    eventsData = fallbackResult.data;
-    eventsError = fallbackResult.error;
+    eventsData = legacyResult.data;
+    eventsError = legacyResult.error;
   }
 
   if (eventsError) {

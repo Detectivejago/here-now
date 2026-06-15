@@ -1,7 +1,7 @@
 "use client";
 
 import { ExternalLink, Lock, MapPin } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useEffect, useState } from "react";
 import { unlockEventDetails } from "@/app/event/[id]/actions";
 
 type LockedEventDetailsProps = {
@@ -24,11 +24,29 @@ function mapsUrl(details: UnlockedDetails) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function getUnlockStorageKey(eventId: string) {
+  return `herenow.unlockedEvent.${eventId}`;
+}
+
 export default function LockedEventDetails({ eventId }: LockedEventDetailsProps) {
   const [password, setPassword] = useState("");
   const [details, setDetails] = useState<UnlockedDetails | null>(null);
   const [message, setMessage] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+
+  useEffect(() => {
+    const stored = window.sessionStorage.getItem(getUnlockStorageKey(eventId));
+
+    if (!stored) {
+      return;
+    }
+
+    try {
+      setDetails(JSON.parse(stored) as UnlockedDetails);
+    } catch {
+      window.sessionStorage.removeItem(getUnlockStorageKey(eventId));
+    }
+  }, [eventId]);
 
   const submit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -44,6 +62,7 @@ export default function LockedEventDetails({ eventId }: LockedEventDetailsProps)
     }
 
     setDetails(result.details);
+    window.sessionStorage.setItem(getUnlockStorageKey(eventId), JSON.stringify(result.details));
     setPassword("");
   };
 

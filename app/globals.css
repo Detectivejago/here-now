@@ -1145,6 +1145,19 @@ a {
   color: #b83a35;
 }
 
+.private-link-box {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 2px solid rgba(23, 63, 114, 0.12);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.58);
+}
+
+.private-link-box .small-button {
+  justify-self: start;
+}
+
 .wizard-step-count {
   margin: 0 0 4px;
   color: var(--muted);
