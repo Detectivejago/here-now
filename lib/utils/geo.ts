@@ -45,6 +45,7 @@ export function findNearestSupportedCity(
   coordinates: { latitude: number; longitude: number }
 ) {
   return cities
+    .filter((city) => city.is_active)
     .map((city) => ({
       city,
       distanceKm: getDistanceKm(coordinates, {

@@ -34,7 +34,7 @@ const copy = {
   it: {
     title: "Ciao avventuriero, trova il tuo evento perfetto!",
     search: "Cerca",
-    locate: "Vicino a me",
+    locate: "Usa la mia posizione",
     addEvent: "Aggiungi Evento",
     createClub: "Crea Club",
     events: "eventi",
@@ -51,8 +51,9 @@ const copy = {
     noCity: "Configura almeno una città.",
     locating: "Cerco la città supportata più vicina...",
     geoDenied: "Posizione non disponibile. Puoi scegliere una città manualmente.",
-    geoUnsupported: "Non copriamo ancora la tua zona. Ti mostro la città supportata più vicina.",
+    geoUnsupported: "HereNow non è ancora attivo qui. Puoi scegliere una città manualmente.",
     geoMatched: "Città selezionata dalla tua posizione.",
+    geoPrompt: "Vuoi aprire automaticamente la città più vicina?",
     filters: {
       now: "Adesso",
       today: "Oggi",
@@ -64,7 +65,7 @@ const copy = {
   en: {
     title: "Hi adventurer, find your perfect event!",
     search: "Search",
-    locate: "Near me",
+    locate: "Use my location",
     addEvent: "Add Event",
     createClub: "Create Club",
     events: "events",
@@ -81,8 +82,9 @@ const copy = {
     noCity: "Configure at least one city.",
     locating: "Finding the closest supported city...",
     geoDenied: "Location unavailable. You can choose a city manually.",
-    geoUnsupported: "We do not cover your area yet. Showing the closest supported city.",
+    geoUnsupported: "HereNow is not active here yet. You can choose a city manually.",
     geoMatched: "City selected from your location.",
+    geoPrompt: "Want to open the closest city automatically?",
     filters: {
       now: "Now",
       today: "Today",
@@ -96,6 +98,7 @@ const copy = {
 const timeFilters: TimeFilter[] = ["now", "today", "week", "permanent", "private"];
 const supportedCityDistanceKm = 75;
 const defaultCityStorageKey = "herenow.defaultCityId";
+const locationPromptStorageKey = "herenow.locationPromptSeen";
 
 function getEmptyStateCopy(
   localeCopy: (typeof copy)["it"],
@@ -183,6 +186,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const [focusKey, setFocusKey] = useState(0);
   const firstFilterRun = useRef(true);
   const restoredDefaultCity = useRef(false);
+  const checkedInitialLocation = useRef(false);
   const currentCopy = copy[locale];
 
   const selectedCity = useMemo(
@@ -291,21 +295,6 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   }, [locale]);
 
   useEffect(() => {
-    if (restoredDefaultCity.current) {
-      return;
-    }
-
-    restoredDefaultCity.current = true;
-    const storedCityId = window.localStorage.getItem(defaultCityStorageKey);
-
-    if (storedCityId && cities.some((city) => city.id === storedCityId)) {
-      setSelectedCityId(storedCityId);
-      setFocusKey((value) => value + 1);
-      void loadEvents(storedCityId, selectedCategoryId, timeFilter);
-    }
-  }, [cities, loadEvents, selectedCategoryId, timeFilter]);
-
-  useEffect(() => {
     if (firstFilterRun.current) {
       firstFilterRun.current = false;
       return;
@@ -318,6 +307,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
     const city = cities.find((candidate) => candidate.id === cityId);
     setSelectedCityId(cityId);
     window.localStorage.setItem(defaultCityStorageKey, cityId);
+    window.localStorage.setItem(locationPromptStorageKey, "true");
     setFocusKey((value) => value + 1);
     trackAnalytics("city_selected", { city_id: cityId, city: city?.name ?? null });
   };
@@ -338,57 +328,135 @@ export default function HomeShell({ initialData }: HomeShellProps) {
     setFocusKey((value) => value + 1);
   };
 
-  const handleLocate = () => {
-    if (!navigator.geolocation) {
-      setGeoMessage(currentCopy.geoDenied);
+  const applyNearestCityFromCoordinates = useCallback(
+    async (
+      coordinates: { latitude: number; longitude: number },
+      source: "auto_geolocation" | "manual_geolocation"
+    ) => {
+      const nearest = findNearestSupportedCity(cities, coordinates);
+
+      setIsLocating(false);
+      setUserLocation(coordinates);
+
+      if (!nearest || nearest.distanceKm > supportedCityDistanceKm) {
+        setGeoMessage(currentCopy.geoUnsupported);
+        window.localStorage.setItem(locationPromptStorageKey, "true");
+        return;
+      }
+
+      setSelectedCityId(nearest.city.id);
+      window.localStorage.setItem(defaultCityStorageKey, nearest.city.id);
+      window.localStorage.setItem(locationPromptStorageKey, "true");
+      setGeoMessage(currentCopy.geoMatched);
+      setFocusKey((value) => value + 1);
+      await loadEvents(nearest.city.id, selectedCategoryId, timeFilter);
+      trackAnalytics("city_selected", {
+        city_id: nearest.city.id,
+        city: nearest.city.name,
+        source,
+        distance_km: Math.round(nearest.distanceKm)
+      });
+    },
+    [cities, currentCopy.geoMatched, currentCopy.geoUnsupported, loadEvents, selectedCategoryId, timeFilter]
+  );
+
+  const handleLocate = useCallback(
+    (source: "auto_geolocation" | "manual_geolocation" = "manual_geolocation") => {
+      if (!navigator.geolocation) {
+        setGeoMessage(currentCopy.geoDenied);
+        return;
+      }
+
+      setIsLocating(true);
+      setGeoMessage(currentCopy.locating);
+
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          void applyNearestCityFromCoordinates(
+            {
+              latitude: position.coords.latitude,
+              longitude: position.coords.longitude
+            },
+            source
+          );
+        },
+        () => {
+          setIsLocating(false);
+          setGeoMessage(currentCopy.geoDenied);
+          window.localStorage.setItem(locationPromptStorageKey, "true");
+        },
+        { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 8000 }
+      );
+    },
+    [applyNearestCityFromCoordinates, currentCopy.geoDenied, currentCopy.locating]
+  );
+
+  useEffect(() => {
+    if (restoredDefaultCity.current) {
       return;
     }
 
-    setIsLocating(true);
-    setGeoMessage(currentCopy.locating);
+    restoredDefaultCity.current = true;
+    const storedCityId = window.localStorage.getItem(defaultCityStorageKey);
 
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const coordinates = {
-          latitude: position.coords.latitude,
-          longitude: position.coords.longitude
-        };
-        const nearest = findNearestSupportedCity(cities, {
-          latitude: coordinates.latitude,
-          longitude: coordinates.longitude
-        });
+    if (storedCityId && cities.some((city) => city.id === storedCityId)) {
+      setSelectedCityId(storedCityId);
+      setFocusKey((value) => value + 1);
+      void loadEvents(storedCityId, selectedCategoryId, timeFilter);
+    }
+  }, [cities, loadEvents, selectedCategoryId, timeFilter]);
 
-        setIsLocating(false);
-        setUserLocation(coordinates);
+  useEffect(() => {
+    if (checkedInitialLocation.current || cities.length === 0) {
+      return;
+    }
 
-        if (!nearest) {
-          setGeoMessage(currentCopy.geoDenied);
+    checkedInitialLocation.current = true;
+
+    const storedCityId = window.localStorage.getItem(defaultCityStorageKey);
+
+    if (storedCityId && cities.some((city) => city.id === storedCityId)) {
+      return;
+    }
+
+    if (!navigator.geolocation) {
+      return;
+    }
+
+    if (!("permissions" in navigator)) {
+      if (window.localStorage.getItem(locationPromptStorageKey) !== "true") {
+        setGeoMessage(currentCopy.geoPrompt);
+      }
+      return;
+    }
+
+    navigator.permissions
+      .query({ name: "geolocation" })
+      .then((permission) => {
+        if (permission.state === "granted") {
+          handleLocate("auto_geolocation");
           return;
         }
 
-        setSelectedCityId(nearest.city.id);
-        window.localStorage.setItem(defaultCityStorageKey, nearest.city.id);
-        setGeoMessage(
-          nearest.distanceKm <= supportedCityDistanceKm
-            ? currentCopy.geoMatched
-            : currentCopy.geoUnsupported
-        );
-        setFocusKey((value) => value + 1);
-        await loadEvents(nearest.city.id, selectedCategoryId, timeFilter);
-        trackAnalytics("city_selected", {
-          city_id: nearest.city.id,
-          city: nearest.city.name,
-          source: "geolocation",
-          distance_km: Math.round(nearest.distanceKm)
-        });
-      },
-      () => {
-        setIsLocating(false);
-        setGeoMessage(currentCopy.geoDenied);
-      },
-      { enableHighAccuracy: false, maximumAge: 5 * 60 * 1000, timeout: 8000 }
-    );
-  };
+        if (permission.state === "denied") {
+          setGeoMessage(currentCopy.geoDenied);
+          window.localStorage.setItem(locationPromptStorageKey, "true");
+          return;
+        }
+
+        if (
+          permission.state === "prompt" &&
+          window.localStorage.getItem(locationPromptStorageKey) !== "true"
+        ) {
+          setGeoMessage(currentCopy.geoPrompt);
+        }
+      })
+      .catch(() => {
+        if (window.localStorage.getItem(locationPromptStorageKey) !== "true") {
+          setGeoMessage(currentCopy.geoPrompt);
+        }
+      });
+  }, [cities, currentCopy.geoDenied, currentCopy.geoPrompt, handleLocate]);
 
   const handleEventCreated = async () => {
     await loadEvents();
@@ -434,7 +502,12 @@ export default function HomeShell({ initialData }: HomeShellProps) {
         <div className="primary-controls">
           <div className="location-controls">
             <CitySelect cities={cities} value={selectedCity?.id ?? ""} onChange={handleCityChange} />
-            <button className="locate-button" type="button" onClick={handleLocate} disabled={isLocating}>
+            <button
+              className="locate-button"
+              type="button"
+              onClick={() => handleLocate("manual_geolocation")}
+              disabled={isLocating}
+            >
               <LocateFixed size={18} aria-hidden="true" />
               <span>{isLocating ? "..." : currentCopy.locate}</span>
             </button>
