@@ -185,13 +185,15 @@ const statusPriority: Record<EventTemporalStatus, number> = {
 };
 
 function getVisibleEvents(events: EventRecord[], view: MapView | null) {
+  const now = new Date();
   const scopedEvents = view ? events.filter((event) => isInsideMapView(event, view)) : events;
 
   return scopedEvents
+    .filter((event) => getTemporalStatus(event, now) !== "ended")
     .slice()
     .sort((a, b) => {
       const statusDelta =
-        statusPriority[getTemporalStatus(a)] - statusPriority[getTemporalStatus(b)];
+        statusPriority[getTemporalStatus(a, now)] - statusPriority[getTemporalStatus(b, now)];
 
       if (statusDelta !== 0) {
         return statusDelta;

@@ -511,6 +511,12 @@ a {
     0 0 0 9px color-mix(in srgb, var(--marker-color) 18%, transparent);
 }
 
+.event-dot.status-today_later {
+  box-shadow:
+    0 7px 16px rgba(16, 47, 85, 0.22),
+    0 0 0 5px color-mix(in srgb, var(--marker-color) 18%, transparent);
+}
+
 .event-dot.status-upcoming {
   width: 21px;
   height: 21px;
@@ -533,6 +539,10 @@ a {
   box-shadow:
     0 7px 16px rgba(16, 47, 85, 0.2),
     0 0 0 5px rgba(23, 63, 114, 0.18);
+}
+
+.event-dot.status-ended {
+  display: none;
 }
 
 .event-dot.quality-low {
