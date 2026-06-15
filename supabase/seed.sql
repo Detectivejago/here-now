@@ -172,7 +172,8 @@ insert into public.events (
   event_type,
   visibility,
   source_type,
-  confidence_score
+  confidence_score,
+  quality_score
 )
 values
   (
@@ -193,7 +194,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   ),
   (
     '90000000-0000-4000-8000-000000000002',
@@ -213,7 +215,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   ),
   (
     '90000000-0000-4000-8000-000000000003',
@@ -233,7 +236,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   ),
   (
     '90000000-0000-4000-8000-000000000004',
@@ -253,7 +257,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   ),
   (
     '90000000-0000-4000-8000-000000000005',
@@ -273,7 +278,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   ),
   (
     '90000000-0000-4000-8000-000000000006',
@@ -293,7 +299,8 @@ values
     'temporary',
     'public',
     'manual',
-    1
+    1,
+    0.9
   )
 on conflict (id) do update
 set title = excluded.title,
@@ -311,7 +318,8 @@ set title = excluded.title,
     event_type = excluded.event_type,
     visibility = excluded.visibility,
     source_type = excluded.source_type,
-    confidence_score = excluded.confidence_score;
+    confidence_score = excluded.confidence_score,
+    quality_score = excluded.quality_score;
 
 insert into public.event_sources (
   provider,

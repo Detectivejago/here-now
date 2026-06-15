@@ -8,16 +8,20 @@ export function getModerationStatus(event: EventRecord) {
   return event.moderation_status ?? (event.status === "approved" ? "approved" : event.status);
 }
 
+function getEventStartDate(event: EventRecord) {
+  return new Date(event.start_time ?? event.start_date);
+}
+
 function getEventEndDate(event: EventRecord) {
-  if (event.end_date) {
-    return new Date(event.end_date);
+  if (event.end_time ?? event.end_date) {
+    return new Date(event.end_time ?? event.end_date!);
   }
 
   if (event.event_type === "permanent") {
     return null;
   }
 
-  return new Date(new Date(event.start_date).getTime() + 4 * HOUR_MS);
+  return new Date(getEventStartDate(event).getTime() + 4 * HOUR_MS);
 }
 
 function isMultiDay(start: Date, end: Date | null) {
@@ -42,7 +46,7 @@ export function getTemporalStatus(event: EventRecord, now = new Date()): EventTe
     return "ended";
   }
 
-  const start = new Date(event.start_date);
+  const start = getEventStartDate(event);
   const end = getEventEndDate(event);
 
   if (Number.isNaN(start.getTime())) {
@@ -110,7 +114,7 @@ function isTomorrow(date: Date, now: Date) {
 export function matchesTimeFilter(event: EventRecord, filter: TimeFilter, now = new Date()) {
   const eventType = event.event_type ?? "temporary";
   const temporalStatus = getTemporalStatus(event, now);
-  const start = new Date(event.start_date);
+  const start = getEventStartDate(event);
   const end = getEventEndDate(event);
 
   if (temporalStatus === "ended" || Number.isNaN(start.getTime())) {
@@ -159,7 +163,7 @@ export function getTemporalStatusLabel(
   locale: Locale,
   now = new Date()
 ) {
-  const start = new Date(event.start_date);
+  const start = getEventStartDate(event);
   const end = getEventEndDate(event);
   const formatter = new Intl.DateTimeFormat(locale === "it" ? "it-IT" : "en-US", {
     weekday: "long"

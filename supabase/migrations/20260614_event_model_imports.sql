@@ -1,5 +1,13 @@
 begin;
 
+drop policy if exists "Approved events are readable" on public.events;
+drop policy if exists "Users create pending events" on public.events;
+drop policy if exists "Users update own pending events" on public.events;
+drop policy if exists "Users delete own pending events" on public.events;
+drop policy if exists "Admins manage events" on public.events;
+drop policy if exists "Readable event images" on public.event_images;
+drop policy if exists "Users manage images for own pending events" on public.event_images;
+
 alter table public.events
 add column if not exists moderation_status public.event_status not null default 'pending',
 add column if not exists event_type text not null default 'temporary',

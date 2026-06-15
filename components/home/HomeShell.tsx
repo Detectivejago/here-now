@@ -4,16 +4,20 @@ import dynamic from "next/dynamic";
 import { LocateFixed, Plus, Users } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import AddEventModal from "@/components/home/AddEventModal";
+import BetaPanel from "@/components/home/BetaPanel";
 import CategoryMenu from "@/components/home/CategoryMenu";
 import CitySelect from "@/components/home/CitySelect";
 import CreateClubModal from "@/components/home/CreateClubModal";
 import LanguageToggle from "@/components/home/LanguageToggle";
+import OnboardingCard from "@/components/home/OnboardingCard";
 import PillButton from "@/components/ui/PillButton";
 import { trackAnalytics } from "@/lib/analytics";
 import { demoHomeData } from "@/lib/data/demo";
 import { getDemoEventsForFilters } from "@/lib/data/filters";
 import { filterEventsForMap, getTemporalStatus } from "@/lib/events/filters";
+import { normalizeEventRecords } from "@/lib/events/records";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
+import { legacyMapEventSelect, mapEventSelect } from "@/lib/supabase/selects";
 import type { EventRecord, HomeData, Locale, TimeFilter } from "@/lib/types";
 import { findNearestSupportedCity, isInsideCityBounds, limitEventsForViewport } from "@/lib/utils/geo";
 
@@ -35,6 +39,16 @@ const copy = {
     createClub: "Crea Club",
     events: "eventi",
     noEvents: "Nessun evento qui: prova un altro filtro.",
+    noLiveTitle: "Non c'è niente live ora",
+    noLiveBody: "Ma qualcosa sta per iniziare. Dai un'occhiata a Oggi.",
+    noCityEventsTitle: "HereNow non è ancora pienamente attivo qui",
+    noCityEventsBody: "Vuoi aggiungere il primo evento?",
+    noFilteredTitle: "Nessun evento con questi filtri",
+    noFilteredBody: "Prova un'altra categoria o un altro momento.",
+    addFirst: "Aggiungi il primo evento",
+    supabaseError: "Connessione instabile. Riprova tra poco.",
+    offline: "Sembra che tu sia offline. La mappa torna appena c'è connessione.",
+    noCity: "Configura almeno una città.",
     locating: "Cerco la città supportata più vicina...",
     geoDenied: "Posizione non disponibile. Puoi scegliere una città manualmente.",
     geoUnsupported: "Non copriamo ancora la tua zona. Ti mostro la città supportata più vicina.",
@@ -55,6 +69,16 @@ const copy = {
     createClub: "Create Club",
     events: "events",
     noEvents: "No events here: try another filter.",
+    noLiveTitle: "Nothing live right now",
+    noLiveBody: "But something is about to start. Try Today.",
+    noCityEventsTitle: "HereNow is not fully active here yet",
+    noCityEventsBody: "Want to add the first event?",
+    noFilteredTitle: "No events for these filters",
+    noFilteredBody: "Try another category or time.",
+    addFirst: "Add the first event",
+    supabaseError: "Connection is unstable. Try again soon.",
+    offline: "You seem offline. The map comes back when the connection does.",
+    noCity: "Configure at least one city.",
     locating: "Finding the closest supported city...",
     geoDenied: "Location unavailable. You can choose a city manually.",
     geoUnsupported: "We do not cover your area yet. Showing the closest supported city.",
@@ -73,12 +97,57 @@ const timeFilters: TimeFilter[] = ["now", "today", "week", "permanent", "private
 const supportedCityDistanceKm = 75;
 const defaultCityStorageKey = "herenow.defaultCityId";
 
-function getCityEnergy(events: EventRecord[], cityName: string | undefined, locale: Locale) {
+function getEmptyStateCopy(
+  localeCopy: (typeof copy)["it"],
+  timeFilter: TimeFilter,
+  hasCategoryFilter: boolean
+) {
+  if (timeFilter === "now") {
+    return {
+      title: localeCopy.noLiveTitle,
+      body: localeCopy.noLiveBody,
+      action: localeCopy.addFirst
+    };
+  }
+
+  if (!hasCategoryFilter && timeFilter === "week") {
+    return {
+      title: localeCopy.noCityEventsTitle,
+      body: localeCopy.noCityEventsBody,
+      action: localeCopy.addFirst
+    };
+  }
+
+  return {
+    title: localeCopy.noFilteredTitle,
+    body: localeCopy.noFilteredBody,
+    action: localeCopy.addFirst
+  };
+}
+
+function getCityEnergy(
+  events: EventRecord[],
+  cityName: string | undefined,
+  locale: Locale,
+  activeTimeFilter: TimeFilter
+) {
   const liveCount = events.filter((event) => getTemporalStatus(event) === "live_now").length;
   const soonCount = events.filter((event) => getTemporalStatus(event) === "starting_soon").length;
 
   if (!cityName) {
     return "";
+  }
+
+  if (events.length === 0) {
+    if (activeTimeFilter === "now") {
+      return locale === "it"
+        ? `${cityName} si sta preparando`
+        : `${cityName} is getting ready`;
+    }
+
+    return locale === "it"
+      ? `${cityName} aspetta il prossimo evento`
+      : `${cityName} is waiting for the next event`;
   }
 
   if (liveCount > 0 || soonCount > 0) {
@@ -106,6 +175,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const [isAddEventOpen, setIsAddEventOpen] = useState(false);
   const [isCreateClubOpen, setIsCreateClubOpen] = useState(false);
   const [geoMessage, setGeoMessage] = useState("");
+  const [appMessage, setAppMessage] = useState("");
   const [userLocation, setUserLocation] = useState<{ latitude: number; longitude: number } | null>(
     null
   );
@@ -113,14 +183,19 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const [focusKey, setFocusKey] = useState(0);
   const firstFilterRun = useRef(true);
   const restoredDefaultCity = useRef(false);
+  const currentCopy = copy[locale];
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === selectedCityId) ?? cities[0],
     [cities, selectedCityId]
   );
   const cityEnergy = useMemo(
-    () => getCityEnergy(events, selectedCity?.name, locale),
-    [events, locale, selectedCity?.name]
+    () => getCityEnergy(events, selectedCity?.name, locale, timeFilter),
+    [events, locale, selectedCity?.name, timeFilter]
+  );
+  const emptyState = useMemo(
+    () => getEmptyStateCopy(currentCopy, timeFilter, Boolean(selectedCategoryId)),
+    [currentCopy, selectedCategoryId, timeFilter]
   );
 
   const loadEvents = useCallback(
@@ -133,6 +208,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
 
       if (!city) {
         setEvents([]);
+        setAppMessage(copy[locale].noCity);
         return;
       }
 
@@ -140,41 +216,79 @@ export default function HomeShell({ initialData }: HomeShellProps) {
 
       if (!supabase) {
         const demoEvents = getDemoEventsForFilters(city, categoryId, demoHomeData.events);
+        setAppMessage("");
         setEvents(filterEventsForMap(demoEvents, activeTimeFilter));
         return;
       }
 
       let query = supabase
         .from("events")
-        .select("*, cities(*), categories(*)")
+        .select(mapEventSelect)
         .eq("city_id", city.id)
         .order("start_date", { ascending: true })
-        .limit(120);
+        .limit(180);
 
       if (categoryId) {
         query = query.eq("category_id", categoryId);
       }
 
-      const { data, error } = await query;
+      const result = await query;
+      let resultData: unknown[] | null = result.data;
+      let resultError = result.error;
 
-      if (error) {
-        const demoEvents = getDemoEventsForFilters(city, categoryId, demoHomeData.events);
-        setEvents(filterEventsForMap(demoEvents, activeTimeFilter));
+      if (resultError) {
+        let fallbackQuery = supabase
+          .from("events")
+          .select(legacyMapEventSelect)
+          .eq("city_id", city.id)
+          .order("start_date", { ascending: true })
+          .limit(180);
+
+        if (categoryId) {
+          fallbackQuery = fallbackQuery.eq("category_id", categoryId);
+        }
+
+        const fallbackResult = await fallbackQuery;
+        resultData = fallbackResult.data;
+        resultError = fallbackResult.error;
+      }
+
+      if (resultError) {
+        setEvents([]);
+        setAppMessage(copy[locale].supabaseError);
         return;
       }
 
-      const scopedEvents = ((data ?? []) as EventRecord[]).filter((event) =>
+      const scopedEvents = normalizeEventRecords(resultData).filter((event) =>
         isInsideCityBounds(event, city)
       );
 
+      setAppMessage("");
       setEvents(limitEventsForViewport(filterEventsForMap(scopedEvents, activeTimeFilter)));
     },
-    [cities, selectedCategoryId, selectedCityId, timeFilter]
+    [cities, locale, selectedCategoryId, selectedCityId, timeFilter]
   );
 
   useEffect(() => {
     trackAnalytics("page_view", { surface: "home" });
   }, []);
+
+  useEffect(() => {
+    const handleOffline = () => setAppMessage(copy[locale].offline);
+    const handleOnline = () => setAppMessage("");
+
+    if (!navigator.onLine) {
+      handleOffline();
+    }
+
+    window.addEventListener("offline", handleOffline);
+    window.addEventListener("online", handleOnline);
+
+    return () => {
+      window.removeEventListener("offline", handleOffline);
+      window.removeEventListener("online", handleOnline);
+    };
+  }, [locale]);
 
   useEffect(() => {
     if (restoredDefaultCity.current) {
@@ -285,8 +399,6 @@ export default function HomeShell({ initialData }: HomeShellProps) {
     setIsCreateClubOpen(false);
   };
 
-  const currentCopy = copy[locale];
-
   return (
     <main className="home-shell">
       <section className="mobile-stage" aria-label="HereNow">
@@ -297,6 +409,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
 
           <h1 className="hero-title">{currentCopy.title}</h1>
           {cityEnergy ? <p className="city-energy">{cityEnergy}</p> : null}
+          <OnboardingCard locale={locale} />
 
           <div className="hero-actions">
             <div className="hero-actions-row">
@@ -341,6 +454,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
           </div>
 
           {geoMessage ? <p className="geo-message">{geoMessage}</p> : null}
+          {appMessage ? <p className="geo-message app-message">{appMessage}</p> : null}
         </div>
 
         <section className="map-section" aria-label="Mappa eventi">
@@ -354,8 +468,19 @@ export default function HomeShell({ initialData }: HomeShellProps) {
               userLocation={userLocation}
             />
           ) : (
-            <div className="map-shell loading">Configura almeno una città.</div>
+            <div className="map-shell loading">{currentCopy.noCity}</div>
           )}
+
+          {events.length === 0 ? (
+            <div className="map-empty-panel">
+              <strong>{emptyState.title}</strong>
+              <p>{emptyState.body}</p>
+              <button type="button" onClick={() => setIsAddEventOpen(true)}>
+                <Plus size={16} aria-hidden="true" />
+                {emptyState.action}
+              </button>
+            </div>
+          ) : null}
 
           <div className="map-badge" aria-live="polite">
             <span>{events.length}</span>
@@ -373,6 +498,8 @@ export default function HomeShell({ initialData }: HomeShellProps) {
             onSelect={handleCategorySelect}
           />
         </div>
+
+        <BetaPanel locale={locale} selectedCity={selectedCity} />
       </section>
 
       {isAddEventOpen ? (

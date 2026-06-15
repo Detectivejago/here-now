@@ -23,6 +23,14 @@ export type EventStatus = ModerationStatus;
 
 export type TimeFilter = "now" | "today" | "week" | "permanent" | "private";
 
+export type EventReportReason =
+  | "not_existing"
+  | "wrong_time"
+  | "wrong_place"
+  | "inappropriate"
+  | "duplicate"
+  | "other";
+
 export type UserRole = "user" | "admin";
 
 export type CityBounds = {
@@ -65,8 +73,14 @@ export type EventRecord = {
   category_id: string;
   start_date: string;
   end_date: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  timezone?: string | null;
   latitude: number;
   longitude: number;
+  lat?: number | null;
+  lng?: number | null;
+  venue_name?: string | null;
   address: string | null;
   image_url: string | null;
   created_by: string | null;
@@ -77,7 +91,12 @@ export type EventRecord = {
   password_hash?: string | null;
   source_type?: EventSourceType | null;
   source_id?: string | null;
+  external_id?: string | null;
+  source_url?: string | null;
   confidence_score?: number | null;
+  quality_score?: number | null;
+  verified_at?: string | null;
+  expires_at?: string | null;
   created_at: string;
   updated_at: string;
   cities?: City | null;
@@ -116,4 +135,8 @@ export type AnalyticsEventName =
   | "category_selected"
   | "event_clicked"
   | "event_created"
-  | "club_created";
+  | "event_reported"
+  | "club_created"
+  | "feedback_submitted"
+  | "city_requested"
+  | "onboarding_seen";

@@ -2,14 +2,15 @@
 
 import L from "leaflet";
 import { ExternalLink, Lock, MapPin } from "lucide-react";
-import { useEffect, useMemo } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { trackAnalytics } from "@/lib/analytics";
 import {
   getTemporalStatus,
   getTemporalStatusLabel,
   isPasswordLocked
 } from "@/lib/events/filters";
+import { getEventQualityScore, isLowQualityEvent } from "@/lib/events/quality";
 import type { Category, City, EventRecord, EventTemporalStatus, Locale } from "@/lib/types";
 import { getCityBoundsTuple, getDistanceKm } from "@/lib/utils/geo";
 
@@ -20,6 +21,14 @@ type EventMapProps = {
   locale: Locale;
   focusKey: number;
   userLocation: { latitude: number; longitude: number } | null;
+};
+
+type MapView = {
+  south: number;
+  west: number;
+  north: number;
+  east: number;
+  zoom: number;
 };
 
 function MapUpdater({ city, focusKey }: { city: City; focusKey: number }) {
@@ -34,6 +43,31 @@ function MapUpdater({ city, focusKey }: { city: City; focusKey: number }) {
   return null;
 }
 
+function getMapView(map: L.Map): MapView {
+  const bounds = map.getBounds().pad(0.12);
+
+  return {
+    south: bounds.getSouth(),
+    west: bounds.getWest(),
+    north: bounds.getNorth(),
+    east: bounds.getEast(),
+    zoom: map.getZoom()
+  };
+}
+
+function MapViewportTracker({ onChange }: { onChange: (view: MapView) => void }) {
+  const map = useMapEvents({
+    moveend: () => onChange(getMapView(map)),
+    zoomend: () => onChange(getMapView(map))
+  });
+
+  useEffect(() => {
+    onChange(getMapView(map));
+  }, [map, onChange]);
+
+  return null;
+}
+
 function categoryName(category: Category | null | undefined, locale: Locale) {
   if (!category) {
     return locale === "it" ? "Evento" : "Event";
@@ -42,10 +76,15 @@ function categoryName(category: Category | null | undefined, locale: Locale) {
   return locale === "it" ? category.name_it : category.name_en;
 }
 
-function createMarkerIcon(color: string, status: EventTemporalStatus, isLocked: boolean) {
+function createMarkerIcon(
+  color: string,
+  status: EventTemporalStatus,
+  isLocked: boolean,
+  isLowQuality: boolean
+) {
   return L.divIcon({
-    className: `event-dot-marker marker-${status}${isLocked ? " marker-private" : ""}`,
-    html: `<div class="event-dot status-${status}${isLocked ? " is-private" : ""}" style="--marker-color:${color}"><span class="event-lock"></span></div>`,
+    className: `event-dot-marker marker-${status}${isLocked ? " marker-private" : ""}${isLowQuality ? " marker-low-quality" : ""}`,
+    html: `<div class="event-dot status-${status}${isLocked ? " is-private" : ""}${isLowQuality ? " quality-low" : ""}" style="--marker-color:${color}"><span class="event-lock"></span></div>`,
     iconSize: [34, 34],
     iconAnchor: [17, 17],
     popupAnchor: [0, -12]
@@ -62,11 +101,15 @@ function createClusterIcon(color: string, count: number, hasLiveNow: boolean) {
   });
 }
 
-function clusterEvents(events: EventRecord[]) {
-  const gridSize = 0.0022;
+function clusterEvents(events: EventRecord[], zoom = 13) {
+  const gridSize = zoom <= 12 ? 0.006 : zoom <= 14 ? 0.0022 : 0.0012;
   const groups = new Map<string, EventRecord[]>();
 
   for (const event of events) {
+    if (!Number.isFinite(event.latitude) || !Number.isFinite(event.longitude)) {
+      continue;
+    }
+
     const key = `${Math.round(event.latitude / gridSize)}:${Math.round(event.longitude / gridSize)}`;
     groups.set(key, [...(groups.get(key) ?? []), event]);
   }
@@ -84,6 +127,61 @@ function clusterEvents(events: EventRecord[]) {
       longitude
     };
   });
+}
+
+function isInsideMapView(event: EventRecord, view: MapView) {
+  return (
+    event.latitude >= view.south &&
+    event.latitude <= view.north &&
+    event.longitude >= view.west &&
+    event.longitude <= view.east
+  );
+}
+
+function getMarkerLimit(zoom?: number) {
+  if (!zoom || zoom <= 12) {
+    return 70;
+  }
+
+  if (zoom <= 14) {
+    return 120;
+  }
+
+  return 180;
+}
+
+const statusPriority: Record<EventTemporalStatus, number> = {
+  live_now: 0,
+  starting_soon: 1,
+  ongoing: 2,
+  today_later: 3,
+  permanent: 4,
+  upcoming: 5,
+  ended: 6
+};
+
+function getVisibleEvents(events: EventRecord[], view: MapView | null) {
+  const scopedEvents = view ? events.filter((event) => isInsideMapView(event, view)) : events;
+
+  return scopedEvents
+    .slice()
+    .sort((a, b) => {
+      const statusDelta =
+        statusPriority[getTemporalStatus(a)] - statusPriority[getTemporalStatus(b)];
+
+      if (statusDelta !== 0) {
+        return statusDelta;
+      }
+
+      const qualityDelta = getEventQualityScore(b) - getEventQualityScore(a);
+
+      if (qualityDelta !== 0) {
+        return qualityDelta;
+      }
+
+      return new Date(a.start_date).getTime() - new Date(b.start_date).getTime();
+    })
+    .slice(0, getMarkerLimit(view?.zoom));
 }
 
 function formatDistance(distanceKm: number, locale: Locale) {
@@ -130,12 +228,18 @@ export default function EventMap({
   focusKey,
   userLocation
 }: EventMapProps) {
+  const [mapView, setMapView] = useState<MapView | null>(null);
   const cityBounds = getCityBoundsTuple(city);
+  const handleMapViewChange = useCallback((view: MapView) => setMapView(view), []);
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
     [categories]
   );
-  const eventClusters = useMemo(() => clusterEvents(events), [events]);
+  const visibleEvents = useMemo(() => getVisibleEvents(events, mapView), [events, mapView]);
+  const eventClusters = useMemo(
+    () => clusterEvents(visibleEvents, mapView?.zoom),
+    [mapView?.zoom, visibleEvents]
+  );
 
   return (
     <div className="map-shell">
@@ -154,11 +258,14 @@ export default function EventMap({
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <MapUpdater city={city} focusKey={focusKey} />
+        <MapViewportTracker onChange={handleMapViewChange} />
 
         {eventClusters.map((cluster) => {
           if (cluster.events.length > 1) {
             const firstEvent = cluster.events[0];
-            const liveEvent = cluster.events.find((event) => getTemporalStatus(event) === "live_now");
+            const liveEvent = cluster.events.find(
+              (event) => getTemporalStatus(event) === "live_now" && !isLowQualityEvent(event)
+            );
             const dominantEvent = liveEvent ?? firstEvent;
             const category = dominantEvent.categories ?? categoryById.get(dominantEvent.category_id);
             const markerColor = category?.color ?? "#FF6B61";
@@ -210,6 +317,7 @@ export default function EventMap({
           const category = event.categories ?? categoryById.get(event.category_id);
           const markerColor = category?.color ?? "#FF6B61";
           const isLocked = isPasswordLocked(event);
+          const lowQuality = isLowQualityEvent(event);
           const temporalStatus = getTemporalStatus(event);
           const temporalLabel = getTemporalStatusLabel(event, temporalStatus, locale);
           const distance = userLocation
@@ -223,7 +331,7 @@ export default function EventMap({
             <Marker
               key={event.id}
               position={[event.latitude, event.longitude]}
-              icon={createMarkerIcon(markerColor, temporalStatus, isLocked)}
+              icon={createMarkerIcon(markerColor, temporalStatus, isLocked, lowQuality)}
               eventHandlers={{
                 click: () =>
                   trackAnalytics("event_clicked", {
@@ -251,13 +359,16 @@ export default function EventMap({
                         {categoryName(category, locale)}
                       </span>
                       <span>{temporalLabel}</span>
-                      {event.address ? (
+                      {event.address && !isLocked ? (
                         <span>
                           <MapPin size={14} aria-hidden="true" /> {event.address}
                         </span>
                       ) : null}
                       {distance !== null ? <span>{formatDistance(distance, locale)}</span> : null}
                       <span>{sourceLabel(event, locale)}</span>
+                      {lowQuality ? (
+                        <span>{locale === "it" ? "Qualità in verifica" : "Quality pending"}</span>
+                      ) : null}
                     </div>
                     <div className="mini-card-actions">
                       <a className="detail-button" href={`/event/${event.id}`}>

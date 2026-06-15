@@ -1,10 +1,13 @@
 import Image from "next/image";
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { CalendarDays, Lock, MapPin } from "lucide-react";
+import { CalendarDays, ExternalLink, Lock, MapPin } from "lucide-react";
+import LockedEventDetails from "@/components/event/LockedEventDetails";
+import ReportEventButton from "@/components/event/ReportEventButton";
 import { getTemporalStatus, getTemporalStatusLabel, isPasswordLocked } from "@/lib/events/filters";
+import { normalizeEventRecord } from "@/lib/events/records";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import type { EventRecord } from "@/lib/types";
+import { legacyPublicEventSelect, publicEventSelect } from "@/lib/supabase/selects";
 import { formatEventDate } from "@/lib/utils/date";
 
 type EventPageProps = {
@@ -21,24 +24,38 @@ export default async function EventPage({ params }: EventPageProps) {
     notFound();
   }
 
-  const { data: event } = await supabase
+  let eventResult = await supabase
     .from("events")
-    .select("*, cities(*), categories(*)")
+    .select(publicEventSelect)
     .eq("id", id)
     .single();
+
+  if (eventResult.error) {
+    eventResult = await supabase
+      .from("events")
+      .select(legacyPublicEventSelect)
+      .eq("id", id)
+      .single();
+  }
+
+  const event = eventResult.data;
 
   if (!event) {
     notFound();
   }
 
-  const typedEvent = event as EventRecord;
+  const typedEvent = normalizeEventRecord(event);
   const locked = isPasswordLocked(typedEvent);
   const temporalStatus = getTemporalStatus(typedEvent);
+  const mapsQuery = typedEvent.address
+    ? `${typedEvent.address} ${typedEvent.latitude},${typedEvent.longitude}`
+    : `${typedEvent.latitude},${typedEvent.longitude}`;
+  const mapsUrl = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(mapsQuery)}`;
 
   return (
     <main className="event-page">
       <article className="event-detail-card">
-        {typedEvent.image_url ? (
+        {typedEvent.image_url && !locked ? (
           <div className="event-detail-image">
             <Image src={typedEvent.image_url} alt="" fill sizes="520px" style={{ objectFit: "cover" }} />
           </div>
@@ -63,15 +80,24 @@ export default async function EventPage({ params }: EventPageProps) {
             <span>
               <CalendarDays size={14} aria-hidden="true" /> {formatEventDate(typedEvent.start_date, "it")}
             </span>
-            {typedEvent.address ? (
+            {typedEvent.address && !locked ? (
               <span>
                 <MapPin size={14} aria-hidden="true" /> {typedEvent.address}
               </span>
             ) : null}
           </div>
-          <p className="event-popup-description">
-            {locked ? "Questo evento e protetto da password." : typedEvent.description}
-          </p>
+          {locked ? (
+            <LockedEventDetails eventId={typedEvent.id} />
+          ) : (
+            <>
+              <p className="event-popup-description">{typedEvent.description}</p>
+              <a className="maps-button detail-map-link" href={mapsUrl} target="_blank" rel="noreferrer">
+                <ExternalLink size={14} aria-hidden="true" />
+                Apri in Maps
+              </a>
+            </>
+          )}
+          <ReportEventButton eventId={typedEvent.id} />
         </div>
       </article>
     </main>

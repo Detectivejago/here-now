@@ -1,8 +1,10 @@
 import { demoHomeData } from "@/lib/data/demo";
 import { getDemoEventsForFilters } from "@/lib/data/filters";
 import { filterEventsForMap } from "@/lib/events/filters";
-import type { Category, City, EventRecord, HomeData } from "@/lib/types";
+import { normalizeEventRecords } from "@/lib/events/records";
+import type { Category, City, HomeData } from "@/lib/types";
 import { isInsideCityBounds, limitEventsForViewport } from "@/lib/utils/geo";
+import { legacyMapEventSelect, mapEventSelect } from "./selects";
 import { createSupabaseServerClient } from "./server";
 
 function getInitialDemoHomeData(): HomeData {
@@ -42,12 +44,25 @@ export async function getInitialHomeData(): Promise<HomeData> {
 
   const initialCity = cities.find((city) => city.slug === "milano") ?? cities[0];
 
-  const { data: events, error: eventsError } = await supabase
+  const eventsResult = await supabase
     .from("events")
-    .select("*, cities(*), categories(*)")
+    .select(mapEventSelect)
     .eq("city_id", initialCity.id)
     .order("start_date", { ascending: true })
     .limit(120);
+  let eventsData: unknown[] | null = eventsResult.data;
+  let eventsError = eventsResult.error;
+
+  if (eventsError) {
+    const fallbackResult = await supabase
+      .from("events")
+      .select(legacyMapEventSelect)
+      .eq("city_id", initialCity.id)
+      .order("start_date", { ascending: true })
+      .limit(120);
+    eventsData = fallbackResult.data;
+    eventsError = fallbackResult.error;
+  }
 
   if (eventsError) {
     return {
@@ -57,7 +72,7 @@ export async function getInitialHomeData(): Promise<HomeData> {
     };
   }
 
-  const scopedEvents = ((events ?? []) as EventRecord[]).filter((event) =>
+  const scopedEvents = normalizeEventRecords(eventsData).filter((event) =>
     isInsideCityBounds(event, initialCity)
   );
 

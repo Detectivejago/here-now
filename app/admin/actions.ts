@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { calculateEventQualityScore } from "@/lib/events/quality";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { EventStatus } from "@/lib/types";
 
@@ -65,22 +66,17 @@ export async function updateEventStatus(formData: FormData) {
 export async function saveEvent(formData: FormData) {
   const { supabase } = await requireAdmin();
   const id = requiredString(formData, "id");
+  const payload = getEventPayloadFromForm(formData);
 
   await supabase
     .from("events")
     .update({
-      title: requiredString(formData, "title"),
-      description: requiredString(formData, "description"),
-      city_id: requiredString(formData, "city_id"),
-      category_id: requiredString(formData, "category_id"),
-      start_date: new Date(requiredString(formData, "start_date")).toISOString(),
-      end_date: formData.get("end_date")
-        ? new Date(String(formData.get("end_date"))).toISOString()
-        : null,
-      latitude: Number(requiredString(formData, "latitude")),
-      longitude: Number(requiredString(formData, "longitude")),
-      address: String(formData.get("address") ?? "") || null,
-      image_url: String(formData.get("image_url") ?? "") || null
+      ...payload,
+      quality_score: calculateEventQualityScore({
+        ...payload,
+        source_type: "manual",
+        confidence_score: 1
+      })
     })
     .eq("id", id);
 
@@ -96,7 +92,46 @@ export async function createAdminEvent(formData: FormData) {
     throw new Error("Status evento non valido.");
   }
 
-  const basePayload = {
+  const basePayload = getEventPayloadFromForm(formData);
+  const qualityScore = calculateEventQualityScore({
+    ...basePayload,
+    source_type: "manual",
+    confidence_score: 1
+  });
+
+  const adminPayload = {
+    ...basePayload,
+    created_by: user.id
+  };
+
+  const { error } = await supabase.from("events").insert({
+    ...adminPayload,
+    status: "upcoming",
+    moderation_status: status,
+    event_type: "temporary",
+    visibility: "public",
+    source_type: "manual",
+    confidence_score: 1,
+    quality_score: qualityScore
+  });
+
+  if (error) {
+    const fallback = await supabase.from("events").insert({
+      ...adminPayload,
+      status
+    });
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+  }
+
+  revalidatePath("/admin");
+  revalidatePath("/");
+}
+
+function getEventPayloadFromForm(formData: FormData) {
+  return {
     title: requiredString(formData, "title"),
     description: requiredString(formData, "description"),
     city_id: requiredString(formData, "city_id"),
@@ -108,32 +143,8 @@ export async function createAdminEvent(formData: FormData) {
     latitude: Number(requiredString(formData, "latitude")),
     longitude: Number(requiredString(formData, "longitude")),
     address: String(formData.get("address") ?? "") || null,
-    image_url: String(formData.get("image_url") ?? "") || null,
-    created_by: user.id
+    image_url: String(formData.get("image_url") ?? "") || null
   };
-  const { error } = await supabase.from("events").insert({
-    ...basePayload,
-    status: "upcoming",
-    moderation_status: status,
-    event_type: "temporary",
-    visibility: "public",
-    source_type: "manual",
-    confidence_score: 1
-  });
-
-  if (error) {
-    const fallback = await supabase.from("events").insert({
-      ...basePayload,
-      status
-    });
-
-    if (fallback.error) {
-      throw new Error(fallback.error.message);
-    }
-  }
-
-  revalidatePath("/admin");
-  revalidatePath("/");
 }
 
 export async function deleteEvent(formData: FormData) {

@@ -4,6 +4,8 @@ export type RawEventEnvelope = {
   source: string;
   externalId: string;
   payload: unknown;
+  sourceUrl?: string | null;
+  receivedAt?: string;
 };
 
 export type NormalizedEventInput = {
@@ -17,10 +19,12 @@ export type NormalizedEventInput = {
   longitude: number;
   address?: string | null;
   imageUrl?: string | null;
+  externalId?: string | null;
   eventType?: EventType;
   visibility?: EventVisibility;
   sourceType?: EventSourceType;
   sourceId?: string | null;
+  sourceUrl?: string | null;
   confidenceScore?: number;
 };
 

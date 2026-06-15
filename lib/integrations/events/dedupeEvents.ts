@@ -1,6 +1,14 @@
 import type { NormalizedEventInput } from "./types";
 
 function eventKey(event: NormalizedEventInput) {
+  if (event.sourceId) {
+    return `source:${event.sourceId}`;
+  }
+
+  if (event.sourceType && event.externalId) {
+    return `external:${event.sourceType}:${event.externalId}`;
+  }
+
   const day = event.startDate.slice(0, 10);
   const title = event.title.toLowerCase().replace(/\s+/g, " ").trim();
   const lat = event.latitude.toFixed(3);

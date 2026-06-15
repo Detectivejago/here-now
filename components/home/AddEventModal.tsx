@@ -4,6 +4,12 @@ import { CalendarDays, Check, ChevronLeft, ChevronRight, Lock, MapPin, X } from 
 import { type CSSProperties, type FormEvent, useMemo, useState } from "react";
 import PillButton from "@/components/ui/PillButton";
 import { trackAnalytics } from "@/lib/analytics";
+import {
+  filterLocationPresets,
+  getLocationPresets,
+  type LocationPreset
+} from "@/lib/data/locationPresets";
+import { calculateEventQualityScore } from "@/lib/events/quality";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { Category, City, EventVisibility, Locale } from "@/lib/types";
 
@@ -44,10 +50,14 @@ const labels = {
     description: "Descrizione breve",
     city: "Città",
     address: "Luogo o indirizzo",
-    latitude: "Latitudine",
-    longitude: "Longitudine",
+    placeHelp: "Scegli una zona: compilo io la posizione sulla mappa.",
+    placeFallback: "Se non lo trovi, scrivi il luogo: userò il centro città come punto iniziale.",
     startDate: "Inizio",
     endDate: "Fine opzionale",
+    today: "Oggi",
+    tomorrow: "Domani",
+    weekend: "Weekend",
+    timeHelp: "Scegli una scorciatoia e poi aggiusta l'orario se serve.",
     category: "Categoria",
     public: "Pubblico",
     password: "Visibile con password",
@@ -81,10 +91,14 @@ const labels = {
     description: "Short description",
     city: "City",
     address: "Place or address",
-    latitude: "Latitude",
-    longitude: "Longitude",
+    placeHelp: "Pick an area: I will fill the map position for you.",
+    placeFallback: "If you do not find it, type the place: I will use the city center as a start.",
     startDate: "Start",
     endDate: "Optional end",
+    today: "Today",
+    tomorrow: "Tomorrow",
+    weekend: "Weekend",
+    timeHelp: "Pick a shortcut, then adjust the time if needed.",
     category: "Category",
     public: "Public",
     password: "Visible with password",
@@ -129,6 +143,31 @@ async function hashPassword(password: string) {
     .join("");
 }
 
+function isMissingColumnError(error: { message?: string } | null, column: string) {
+  return Boolean(error?.message?.toLowerCase().includes(column.toLowerCase()));
+}
+
+function toDateTimeLocal(date: Date) {
+  const pad = (value: number) => String(value).padStart(2, "0");
+
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(
+    date.getHours()
+  )}:${pad(date.getMinutes())}`;
+}
+
+function getTodayStart() {
+  const date = new Date();
+  date.setHours(date.getHours() + 2, 0, 0, 0);
+  return date;
+}
+
+function getDateAt(daysFromNow: number, hour = 19, minute = 30) {
+  const date = new Date();
+  date.setDate(date.getDate() + daysFromNow);
+  date.setHours(hour, minute, 0, 0);
+  return date;
+}
+
 export default function AddEventModal({
   cities,
   categories,
@@ -159,6 +198,11 @@ export default function AddEventModal({
   const [isSaving, setIsSaving] = useState(false);
   const t = labels[locale];
   const selectedCategory = categories.find((category) => category.id === categoryId);
+  const locationPresets = useMemo(() => getLocationPresets(selectedCity), [selectedCity]);
+  const visibleLocationPresets = useMemo(
+    () => filterLocationPresets(locationPresets, address),
+    [address, locationPresets]
+  );
 
   const visibleSteps = stepOrder.filter((candidate) => visibility === "password" || candidate !== "password");
   const currentStepIndex = visibleSteps.indexOf(step);
@@ -167,9 +211,36 @@ export default function AddEventModal({
     const city = cities.find((candidate) => candidate.id === value);
     setCityId(value);
     if (city) {
+      setAddress("");
       setLatitude(String(city.latitude));
       setLongitude(String(city.longitude));
     }
+  };
+
+  const handleLocationPreset = (preset: LocationPreset) => {
+    setAddress(preset.address);
+    setLatitude(String(preset.latitude));
+    setLongitude(String(preset.longitude));
+  };
+
+  const handleAddressChange = (value: string) => {
+    setAddress(value);
+
+    if (selectedCity && !value.trim()) {
+      setLatitude(String(selectedCity.latitude));
+      setLongitude(String(selectedCity.longitude));
+    }
+  };
+
+  const applyQuickDate = (value: "today" | "tomorrow" | "weekend") => {
+    const nextDate =
+      value === "today"
+        ? getTodayStart()
+        : value === "tomorrow"
+          ? getDateAt(1)
+          : getDateAt(6 - new Date().getDay(), 18, 0);
+
+    setStartDate(toDateTimeLocal(nextDate));
   };
 
   const goNext = () => setStep(getNextStep(step, visibility));
@@ -225,6 +296,8 @@ export default function AddEventModal({
       image_url: null,
       created_by: user.id
     };
+    const sourceType = "user";
+    const confidenceScore = 0.7;
     const nextModelPayload = {
       ...basePayload,
       status: "upcoming",
@@ -232,24 +305,46 @@ export default function AddEventModal({
       event_type: visibility === "public" ? "temporary" : "private",
       visibility,
       password_hash: passwordHash,
-      source_type: "user",
-      confidence_score: 0.7
+      source_type: sourceType,
+      confidence_score: confidenceScore,
+      quality_score: calculateEventQualityScore({
+        ...basePayload,
+        source_type: sourceType,
+        confidence_score: confidenceScore
+      })
     };
 
-    const { error } = await supabase.from("events").insert(nextModelPayload);
+    const { error: nextModelError } = await supabase.from("events").insert(nextModelPayload);
+    let saved = !nextModelError;
 
-    if (error) {
-      const fallback = await supabase.from("events").insert({
+    if (!saved && isMissingColumnError(nextModelError, "quality_score")) {
+      const payloadWithoutQualityScore = {
+        ...basePayload,
+        status: "upcoming",
+        moderation_status: "pending",
+        event_type: visibility === "public" ? "temporary" : "private",
+        visibility,
+        password_hash: passwordHash,
+        source_type: sourceType,
+        confidence_score: confidenceScore
+      };
+      const retry = await supabase.from("events").insert(payloadWithoutQualityScore);
+      saved = !retry.error;
+    }
+
+    if (!saved && isMissingColumnError(nextModelError, "moderation_status")) {
+      const legacyFallback = await supabase.from("events").insert({
         ...basePayload,
         status: "pending"
       });
+      saved = !legacyFallback.error;
+    }
 
-      if (fallback.error) {
-        setIsSaving(false);
-        setIsError(true);
-        setMessage(t.failed);
-        return;
-      }
+    if (!saved) {
+      setIsSaving(false);
+      setIsError(true);
+      setMessage(t.failed);
+      return;
     }
 
     setIsSaving(false);
@@ -315,33 +410,44 @@ export default function AddEventModal({
                 <span>
                   <MapPin size={15} aria-hidden="true" /> {t.address}
                 </span>
-                <input required value={address} onChange={(event) => setAddress(event.target.value)} />
+                <input
+                  required
+                  value={address}
+                  placeholder={selectedCity ? `${selectedCity.name}, zona o locale` : ""}
+                  onChange={(event) => handleAddressChange(event.target.value)}
+                />
               </label>
-              <div className="form-row">
-                <label className="field">
-                  {t.latitude}
-                  <input
-                    required
-                    inputMode="decimal"
-                    value={latitude}
-                    onChange={(event) => setLatitude(event.target.value)}
-                  />
-                </label>
-                <label className="field">
-                  {t.longitude}
-                  <input
-                    required
-                    inputMode="decimal"
-                    value={longitude}
-                    onChange={(event) => setLongitude(event.target.value)}
-                  />
-                </label>
+              <div className="location-suggestions" aria-label={t.placeHelp}>
+                <p>{visibleLocationPresets.length > 0 ? t.placeHelp : t.placeFallback}</p>
+                {visibleLocationPresets.map((preset) => (
+                  <button
+                    className={address === preset.address ? "location-suggestion active" : "location-suggestion"}
+                    key={`${preset.address}-${preset.latitude}-${preset.longitude}`}
+                    type="button"
+                    onClick={() => handleLocationPreset(preset)}
+                  >
+                    <strong>{preset.label}</strong>
+                    <span>{preset.address}</span>
+                  </button>
+                ))}
               </div>
             </div>
           ) : null}
 
           {step === "time" ? (
             <div className="form-grid">
+              <div className="quick-date-row">
+                <button type="button" onClick={() => applyQuickDate("today")}>
+                  {t.today}
+                </button>
+                <button type="button" onClick={() => applyQuickDate("tomorrow")}>
+                  {t.tomorrow}
+                </button>
+                <button type="button" onClick={() => applyQuickDate("weekend")}>
+                  {t.weekend}
+                </button>
+              </div>
+              <p className="form-message subtle">{t.timeHelp}</p>
               <label className="field">
                 <span>
                   <CalendarDays size={15} aria-hidden="true" /> {t.startDate}
