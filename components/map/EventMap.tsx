@@ -1,9 +1,9 @@
 "use client";
 
 import L from "leaflet";
-import { ExternalLink, Lock, MapPin } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import { ExternalLink, Lock, MapPin, X } from "lucide-react";
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
+import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import { trackAnalytics } from "@/lib/analytics";
 import {
   getTemporalStatus,
@@ -31,6 +31,23 @@ type MapView = {
   zoom: number;
 };
 
+type EventCluster = {
+  id: string;
+  events: EventRecord[];
+  latitude: number;
+  longitude: number;
+};
+
+type SelectedSheet =
+  | {
+      type: "event";
+      event: EventRecord;
+    }
+  | {
+      type: "cluster";
+      cluster: EventCluster;
+    };
+
 function MapUpdater({ city, focusKey }: { city: City; focusKey: number }) {
   const map = useMap();
 
@@ -55,8 +72,15 @@ function getMapView(map: L.Map): MapView {
   };
 }
 
-function MapViewportTracker({ onChange }: { onChange: (view: MapView) => void }) {
+function MapViewportTracker({
+  onChange,
+  onMapTap
+}: {
+  onChange: (view: MapView) => void;
+  onMapTap: () => void;
+}) {
   const map = useMapEvents({
+    click: onMapTap,
     moveend: () => onChange(getMapView(map)),
     zoomend: () => onChange(getMapView(map))
   });
@@ -220,6 +244,126 @@ function mapsUrl(event: EventRecord) {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function EventBottomSheet({
+  selected,
+  categories,
+  locale,
+  userLocation,
+  onClose
+}: {
+  selected: SelectedSheet;
+  categories: Map<string, Category>;
+  locale: Locale;
+  userLocation: { latitude: number; longitude: number } | null;
+  onClose: () => void;
+}) {
+  if (selected.type === "cluster") {
+    const clusterDistance = userLocation
+      ? getDistanceKm(userLocation, {
+          latitude: selected.cluster.latitude,
+          longitude: selected.cluster.longitude
+        })
+      : null;
+
+    return (
+      <aside className="event-bottom-sheet" aria-live="polite">
+        <div className="event-sheet-handle" aria-hidden="true" />
+        <div className="event-sheet-heading">
+          <div>
+            <p className="event-sheet-kicker">{locale === "it" ? "Zona attiva" : "Active area"}</p>
+            <h2>{selected.cluster.events.length} eventi qui</h2>
+          </div>
+          <button className="event-sheet-close" type="button" onClick={onClose} aria-label="Chiudi">
+            <X size={18} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="event-sheet-meta">
+          <span>{locale === "it" ? "Eventi vicini" : "Nearby events"}</span>
+          {clusterDistance !== null ? <span>{formatDistance(clusterDistance, locale)}</span> : null}
+        </div>
+        <div className="cluster-list event-sheet-list">
+          {selected.cluster.events.slice(0, 4).map((event) => {
+            const status = getTemporalStatus(event);
+
+            return (
+              <a className="cluster-item" href={`/event/${event.id}`} key={event.id}>
+                <strong>{event.title}</strong>
+                <span>{getTemporalStatusLabel(event, status, locale)}</span>
+              </a>
+            );
+          })}
+        </div>
+      </aside>
+    );
+  }
+
+  const event = selected.event;
+  const category = event.categories ?? categories.get(event.category_id);
+  const markerColor = category?.color ?? "#FF6B61";
+  const isLocked = isPasswordLocked(event);
+  const lowQuality = isLowQualityEvent(event);
+  const temporalStatus = getTemporalStatus(event);
+  const temporalLabel = getTemporalStatusLabel(event, temporalStatus, locale);
+  const distance = userLocation
+    ? getDistanceKm(userLocation, {
+        latitude: event.latitude,
+        longitude: event.longitude
+      })
+    : null;
+  const canOpenMaps = Number.isFinite(event.latitude) && Number.isFinite(event.longitude);
+
+  return (
+    <aside className="event-bottom-sheet" aria-live="polite">
+      <div className="event-sheet-handle" aria-hidden="true" />
+      <div className="event-sheet-heading">
+        <div>
+          <p className="event-sheet-kicker" style={{ "--category-color": markerColor } as CSSProperties}>
+            <span className="category-dot" aria-hidden="true" />
+            {categoryName(category, locale)}
+          </p>
+          <h2>{event.title}</h2>
+        </div>
+        <button className="event-sheet-close" type="button" onClick={onClose} aria-label="Chiudi">
+          <X size={18} aria-hidden="true" />
+        </button>
+      </div>
+
+      <div className="event-sheet-meta">
+        <span>{temporalLabel}</span>
+        <span>
+          <MapPin size={14} aria-hidden="true" />
+          {isLocked ? (locale === "it" ? "Luogo riservato" : "Private place") : event.address ?? cityFallback(locale)}
+        </span>
+        {distance !== null ? <span>{formatDistance(distance, locale)}</span> : null}
+        <span>{sourceLabel(event, locale)}</span>
+        {isLocked ? (
+          <span>
+            <Lock size={14} aria-hidden="true" />
+            {locale === "it" ? "Privato" : "Private"}
+          </span>
+        ) : null}
+        {lowQuality ? <span>{locale === "it" ? "Qualità in verifica" : "Quality pending"}</span> : null}
+      </div>
+
+      <div className="event-sheet-actions">
+        <a className="detail-button" href={`/event/${event.id}`}>
+          {locale === "it" ? "Apri dettagli" : "Open details"}
+        </a>
+        {canOpenMaps ? (
+          <a className="maps-button" href={mapsUrl(event)} target="_blank" rel="noreferrer">
+            <ExternalLink size={15} aria-hidden="true" />
+            {locale === "it" ? "Apri in Maps" : "Open in Maps"}
+          </a>
+        ) : null}
+      </div>
+    </aside>
+  );
+}
+
+function cityFallback(locale: Locale) {
+  return locale === "it" ? "Luogo da confermare" : "Place to confirm";
+}
+
 export default function EventMap({
   city,
   categories,
@@ -229,8 +373,10 @@ export default function EventMap({
   userLocation
 }: EventMapProps) {
   const [mapView, setMapView] = useState<MapView | null>(null);
+  const [selectedSheet, setSelectedSheet] = useState<SelectedSheet | null>(null);
   const cityBounds = getCityBoundsTuple(city);
   const handleMapViewChange = useCallback((view: MapView) => setMapView(view), []);
+  const closeSheet = useCallback(() => setSelectedSheet(null), []);
   const categoryById = useMemo(
     () => new Map(categories.map((category) => [category.id, category])),
     [categories]
@@ -240,6 +386,10 @@ export default function EventMap({
     () => clusterEvents(visibleEvents, mapView?.zoom),
     [mapView?.zoom, visibleEvents]
   );
+
+  useEffect(() => {
+    setSelectedSheet(null);
+  }, [city.id, focusKey]);
 
   return (
     <div className="map-shell">
@@ -258,7 +408,7 @@ export default function EventMap({
           url="https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png"
         />
         <MapUpdater city={city} focusKey={focusKey} />
-        <MapViewportTracker onChange={handleMapViewChange} />
+        <MapViewportTracker onChange={handleMapViewChange} onMapTap={closeSheet} />
 
         {eventClusters.map((cluster) => {
           if (cluster.events.length > 1) {
@@ -269,47 +419,24 @@ export default function EventMap({
             const dominantEvent = liveEvent ?? firstEvent;
             const category = dominantEvent.categories ?? categoryById.get(dominantEvent.category_id);
             const markerColor = category?.color ?? "#FF6B61";
-            const clusterDistance = userLocation
-              ? getDistanceKm(userLocation, {
-                  latitude: cluster.latitude,
-                  longitude: cluster.longitude
-                })
-              : null;
 
             return (
               <Marker
                 key={cluster.id}
                 position={[cluster.latitude, cluster.longitude]}
                 icon={createClusterIcon(markerColor, cluster.events.length, Boolean(liveEvent))}
-              >
-                <Popup closeButton>
-                  <article className="event-popup mini-event-card">
-                    <div className="event-popup-body">
-                      <div className="event-popup-heading">
-                        <h2 className="event-popup-title">{cluster.events.length} eventi qui</h2>
-                      </div>
-                      <div className="event-popup-meta">
-                        <span>{liveEvent ? "Ora nella zona" : "Eventi vicini"}</span>
-                        {clusterDistance !== null ? (
-                          <span>{formatDistance(clusterDistance, locale)}</span>
-                        ) : null}
-                      </div>
-                      <div className="cluster-list">
-                        {cluster.events.slice(0, 4).map((event) => {
-                          const status = getTemporalStatus(event);
-
-                          return (
-                            <a className="cluster-item" href={`/event/${event.id}`} key={event.id}>
-                              <strong>{event.title}</strong>
-                              <span>{getTemporalStatusLabel(event, status, locale)}</span>
-                            </a>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  </article>
-                </Popup>
-              </Marker>
+                eventHandlers={{
+                  click: () => {
+                    setSelectedSheet({ type: "cluster", cluster });
+                    trackAnalytics("event_clicked", {
+                      city_id: dominantEvent.city_id,
+                      category_id: dominantEvent.category_id,
+                      cluster_size: cluster.events.length,
+                      temporal_status: liveEvent ? "live_now" : getTemporalStatus(dominantEvent)
+                    });
+                  }
+                }}
+              />
             );
           }
 
@@ -319,13 +446,6 @@ export default function EventMap({
           const isLocked = isPasswordLocked(event);
           const lowQuality = isLowQualityEvent(event);
           const temporalStatus = getTemporalStatus(event);
-          const temporalLabel = getTemporalStatusLabel(event, temporalStatus, locale);
-          const distance = userLocation
-            ? getDistanceKm(userLocation, {
-                latitude: event.latitude,
-                longitude: event.longitude
-              })
-            : null;
 
           return (
             <Marker
@@ -333,59 +453,30 @@ export default function EventMap({
               position={[event.latitude, event.longitude]}
               icon={createMarkerIcon(markerColor, temporalStatus, isLocked, lowQuality)}
               eventHandlers={{
-                click: () =>
+                click: () => {
+                  setSelectedSheet({ type: "event", event });
                   trackAnalytics("event_clicked", {
                     event_id: event.id,
                     city_id: event.city_id,
                     category_id: event.category_id,
                     temporal_status: temporalStatus
-                  })
+                  });
+                }
               }}
-            >
-              <Popup closeButton>
-                <article className="event-popup mini-event-card">
-                  <div className="event-popup-body">
-                    <div className="event-popup-heading">
-                      <h2 className="event-popup-title">{event.title}</h2>
-                      {isLocked ? (
-                        <span className="locked-badge">
-                          <Lock size={13} aria-hidden="true" />
-                          {locale === "it" ? "Privato" : "Private"}
-                        </span>
-                      ) : null}
-                    </div>
-                    <div className="event-popup-meta">
-                      <span style={{ color: markerColor, fontWeight: 900 }}>
-                        {categoryName(category, locale)}
-                      </span>
-                      <span>{temporalLabel}</span>
-                      {event.address && !isLocked ? (
-                        <span>
-                          <MapPin size={14} aria-hidden="true" /> {event.address}
-                        </span>
-                      ) : null}
-                      {distance !== null ? <span>{formatDistance(distance, locale)}</span> : null}
-                      <span>{sourceLabel(event, locale)}</span>
-                      {lowQuality ? (
-                        <span>{locale === "it" ? "Qualità in verifica" : "Quality pending"}</span>
-                      ) : null}
-                    </div>
-                    <div className="mini-card-actions">
-                      <a className="detail-button" href={`/event/${event.id}`}>
-                        {locale === "it" ? "Apri dettagli" : "Open details"}
-                      </a>
-                      <a className="maps-button" href={mapsUrl(event)} target="_blank" rel="noreferrer">
-                        <ExternalLink size={14} aria-hidden="true" />
-                        Maps
-                      </a>
-                    </div>
-                  </div>
-                </article>
-              </Popup>
-            </Marker>
+            />
           );
         })}
       </MapContainer>
+
+      {selectedSheet ? (
+        <EventBottomSheet
+          selected={selectedSheet}
+          categories={categoryById}
+          locale={locale}
+          userLocation={userLocation}
+          onClose={closeSheet}
+        />
+      ) : null}
     </div>
   );
 }
