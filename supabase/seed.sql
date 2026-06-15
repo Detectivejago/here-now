@@ -5,6 +5,9 @@ insert into public.cities (
   name,
   slug,
   country_code,
+  country,
+  timezone,
+  launch_status,
   latitude,
   longitude,
   radius_km,
@@ -17,6 +20,9 @@ values
     'Milano',
     'milano',
     'IT',
+    'Italy',
+    'Europe/Rome',
+    'active',
     45.4642,
     9.1900,
     14,
@@ -28,6 +34,9 @@ values
     'Parigi',
     'parigi',
     'FR',
+    'France',
+    'Europe/Paris',
+    'beta',
     48.8566,
     2.3522,
     15,
@@ -39,6 +48,9 @@ values
     'Amsterdam',
     'amsterdam',
     'NL',
+    'Netherlands',
+    'Europe/Amsterdam',
+    'beta',
     52.3676,
     4.9041,
     12,
@@ -50,6 +62,9 @@ values
     'New York',
     'new-york',
     'US',
+    'United States',
+    'America/New_York',
+    'beta',
     40.7128,
     -74.0060,
     18,
@@ -59,6 +74,9 @@ values
 on conflict (slug) do update
 set name = excluded.name,
     country_code = excluded.country_code,
+    country = excluded.country,
+    timezone = excluded.timezone,
+    launch_status = excluded.launch_status,
     latitude = excluded.latitude,
     longitude = excluded.longitude,
     radius_km = excluded.radius_km,
@@ -302,6 +320,8 @@ insert into public.event_sources (
   base_url,
   api_key_env,
   enabled,
+  is_active,
+  reliability_score,
   config
 )
 values (
@@ -311,12 +331,16 @@ values (
   'https://app.ticketmaster.com/discovery/v2',
   'TICKETMASTER_API_KEY',
   false,
+  false,
+  0.84,
   '{"adapter":"ticketmaster"}'::jsonb
 )
 on conflict (provider, name) do update
 set source_type = excluded.source_type,
     base_url = excluded.base_url,
     api_key_env = excluded.api_key_env,
+    is_active = excluded.is_active,
+    reliability_score = excluded.reliability_score,
     config = excluded.config;
 
 commit;

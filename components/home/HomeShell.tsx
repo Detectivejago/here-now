@@ -12,7 +12,7 @@ import PillButton from "@/components/ui/PillButton";
 import { trackAnalytics } from "@/lib/analytics";
 import { demoHomeData } from "@/lib/data/demo";
 import { getDemoEventsForFilters } from "@/lib/data/filters";
-import { filterEventsForMap } from "@/lib/events/filters";
+import { filterEventsForMap, getTemporalStatus } from "@/lib/events/filters";
 import { createSupabaseBrowserClient } from "@/lib/supabase/client";
 import type { EventRecord, HomeData, Locale, TimeFilter } from "@/lib/types";
 import { findNearestSupportedCity, isInsideCityBounds, limitEventsForViewport } from "@/lib/utils/geo";
@@ -71,6 +71,26 @@ const copy = {
 
 const timeFilters: TimeFilter[] = ["now", "today", "week", "permanent", "private"];
 const supportedCityDistanceKm = 75;
+const defaultCityStorageKey = "herenow.defaultCityId";
+
+function getCityEnergy(events: EventRecord[], cityName: string | undefined, locale: Locale) {
+  const liveCount = events.filter((event) => getTemporalStatus(event) === "live_now").length;
+  const soonCount = events.filter((event) => getTemporalStatus(event) === "starting_soon").length;
+
+  if (!cityName) {
+    return "";
+  }
+
+  if (liveCount > 0 || soonCount > 0) {
+    return locale === "it"
+      ? `${cityName} è attiva · ${liveCount} ora · ${soonCount} entro 90 min`
+      : `${cityName} is active · ${liveCount} now · ${soonCount} within 90 min`;
+  }
+
+  return locale === "it"
+    ? `${cityName} si sta preparando · ${events.length} eventi in vista`
+    : `${cityName} is warming up · ${events.length} events ahead`;
+}
 
 export default function HomeShell({ initialData }: HomeShellProps) {
   const [locale, setLocale] = useState<Locale>("it");
@@ -92,10 +112,15 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const [isLocating, setIsLocating] = useState(false);
   const [focusKey, setFocusKey] = useState(0);
   const firstFilterRun = useRef(true);
+  const restoredDefaultCity = useRef(false);
 
   const selectedCity = useMemo(
     () => cities.find((city) => city.id === selectedCityId) ?? cities[0],
     [cities, selectedCityId]
+  );
+  const cityEnergy = useMemo(
+    () => getCityEnergy(events, selectedCity?.name, locale),
+    [events, locale, selectedCity?.name]
   );
 
   const loadEvents = useCallback(
@@ -152,6 +177,21 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   }, []);
 
   useEffect(() => {
+    if (restoredDefaultCity.current) {
+      return;
+    }
+
+    restoredDefaultCity.current = true;
+    const storedCityId = window.localStorage.getItem(defaultCityStorageKey);
+
+    if (storedCityId && cities.some((city) => city.id === storedCityId)) {
+      setSelectedCityId(storedCityId);
+      setFocusKey((value) => value + 1);
+      void loadEvents(storedCityId, selectedCategoryId, timeFilter);
+    }
+  }, [cities, loadEvents, selectedCategoryId, timeFilter]);
+
+  useEffect(() => {
     if (firstFilterRun.current) {
       firstFilterRun.current = false;
       return;
@@ -163,6 +203,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
   const handleCityChange = (cityId: string) => {
     const city = cities.find((candidate) => candidate.id === cityId);
     setSelectedCityId(cityId);
+    window.localStorage.setItem(defaultCityStorageKey, cityId);
     setFocusKey((value) => value + 1);
     trackAnalytics("city_selected", { city_id: cityId, city: city?.name ?? null });
   };
@@ -212,6 +253,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
         }
 
         setSelectedCityId(nearest.city.id);
+        window.localStorage.setItem(defaultCityStorageKey, nearest.city.id);
         setGeoMessage(
           nearest.distanceKm <= supportedCityDistanceKm
             ? currentCopy.geoMatched
@@ -254,6 +296,7 @@ export default function HomeShell({ initialData }: HomeShellProps) {
           </div>
 
           <h1 className="hero-title">{currentCopy.title}</h1>
+          {cityEnergy ? <p className="city-energy">{cityEnergy}</p> : null}
 
           <div className="hero-actions">
             <div className="hero-actions-row">

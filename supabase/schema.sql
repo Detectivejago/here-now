@@ -25,6 +25,10 @@ create table if not exists public.cities (
   name text not null,
   slug text not null unique,
   country_code text not null,
+  country text not null default '',
+  timezone text not null default 'UTC',
+  launch_status text not null default 'active'
+    check (launch_status in ('active', 'beta', 'requested')),
   latitude double precision not null check (latitude between -90 and 90),
   longitude double precision not null check (longitude between -180 and 180),
   radius_km numeric(8, 2) not null default 10 check (radius_km > 0),
@@ -71,10 +75,16 @@ create table if not exists public.events (
   category_id uuid not null references public.categories(id) on delete restrict,
   start_date timestamptz not null,
   end_date timestamptz,
+  start_time timestamptz,
+  end_time timestamptz,
+  timezone text,
   latitude double precision not null check (latitude between -90 and 90),
   longitude double precision not null check (longitude between -180 and 180),
+  lat double precision,
+  lng double precision,
   location geography(Point, 4326)
     generated always as (st_setsrid(st_makepoint(longitude, latitude), 4326)::geography) stored,
+  venue_name text,
   address text,
   image_url text,
   created_by uuid references public.profiles(id) on delete set null,
@@ -89,8 +99,11 @@ create table if not exists public.events (
   source_type text not null default 'user'
     check (source_type in ('user', 'api', 'partner', 'manual')),
   source_id text,
+  source_url text,
   confidence_score numeric(3, 2) not null default 1
     check (confidence_score >= 0 and confidence_score <= 1),
+  verified_at timestamptz,
+  expires_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint events_end_after_start check (end_date is null or end_date >= start_date)
@@ -127,6 +140,9 @@ create table if not exists public.event_sources (
   base_url text,
   api_key_env text,
   enabled boolean not null default false,
+  is_active boolean not null default false,
+  reliability_score numeric(3, 2) not null default 1
+    check (reliability_score >= 0 and reliability_score <= 1),
   config jsonb not null default '{}'::jsonb,
   last_imported_at timestamptz,
   created_at timestamptz not null default now(),
@@ -139,11 +155,13 @@ create table if not exists public.raw_events (
   source_id uuid not null references public.event_sources(id) on delete cascade,
   external_id text not null,
   raw_payload jsonb not null,
+  raw_json jsonb not null default '{}'::jsonb,
   normalized_event_id uuid references public.events(id) on delete set null,
   import_status text not null default 'pending'
     check (import_status in ('pending', 'normalized', 'duplicate', 'failed')),
   error_message text,
   payload_hash text,
+  imported_at timestamptz not null default now(),
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique(source_id, external_id)

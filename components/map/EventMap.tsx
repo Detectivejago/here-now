@@ -1,8 +1,7 @@
 "use client";
 
-import Link from "next/link";
 import L from "leaflet";
-import { Lock, MapPin } from "lucide-react";
+import { ExternalLink, Lock, MapPin } from "lucide-react";
 import { useEffect, useMemo } from "react";
 import { MapContainer, Marker, Popup, TileLayer, useMap } from "react-leaflet";
 import { trackAnalytics } from "@/lib/analytics";
@@ -53,6 +52,40 @@ function createMarkerIcon(color: string, status: EventTemporalStatus, isLocked: 
   });
 }
 
+function createClusterIcon(color: string, count: number, hasLiveNow: boolean) {
+  return L.divIcon({
+    className: `event-cluster-marker${hasLiveNow ? " live-cluster" : ""}`,
+    html: `<div class="event-cluster" style="--marker-color:${color}"><span>${count}</span></div>`,
+    iconSize: [42, 42],
+    iconAnchor: [21, 21],
+    popupAnchor: [0, -14]
+  });
+}
+
+function clusterEvents(events: EventRecord[]) {
+  const gridSize = 0.0022;
+  const groups = new Map<string, EventRecord[]>();
+
+  for (const event of events) {
+    const key = `${Math.round(event.latitude / gridSize)}:${Math.round(event.longitude / gridSize)}`;
+    groups.set(key, [...(groups.get(key) ?? []), event]);
+  }
+
+  return Array.from(groups.entries()).map(([key, groupedEvents]) => {
+    const latitude =
+      groupedEvents.reduce((total, event) => total + event.latitude, 0) / groupedEvents.length;
+    const longitude =
+      groupedEvents.reduce((total, event) => total + event.longitude, 0) / groupedEvents.length;
+
+    return {
+      id: key,
+      events: groupedEvents,
+      latitude,
+      longitude
+    };
+  });
+}
+
 function formatDistance(distanceKm: number, locale: Locale) {
   if (distanceKm < 1) {
     return `${Math.round(distanceKm * 1000)} m`;
@@ -66,8 +99,27 @@ function formatDistance(distanceKm: number, locale: Locale) {
 function sourceLabel(event: EventRecord, locale: Locale) {
   const source = event.source_type ?? "manual";
   const confidence = Math.round((event.confidence_score ?? 1) * 100);
+  const visibility = event.visibility ?? "public";
+  const sourceName =
+    visibility === "password" || visibility === "private"
+      ? "Private"
+      : source === "api"
+        ? "Imported"
+        : source === "partner"
+          ? "Verified"
+          : source === "user"
+            ? "User"
+            : "Official";
 
-  return locale === "it" ? `Fonte ${source} · ${confidence}%` : `Source ${source} · ${confidence}%`;
+  return locale === "it" ? `${sourceName} · ${confidence}%` : `${sourceName} · ${confidence}%`;
+}
+
+function mapsUrl(event: EventRecord) {
+  const query = event.address
+    ? `${event.address} ${event.latitude},${event.longitude}`
+    : `${event.latitude},${event.longitude}`;
+
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
 export default function EventMap({
@@ -83,6 +135,7 @@ export default function EventMap({
     () => new Map(categories.map((category) => [category.id, category])),
     [categories]
   );
+  const eventClusters = useMemo(() => clusterEvents(events), [events]);
 
   return (
     <div className="map-shell">
@@ -102,7 +155,58 @@ export default function EventMap({
         />
         <MapUpdater city={city} focusKey={focusKey} />
 
-        {events.map((event) => {
+        {eventClusters.map((cluster) => {
+          if (cluster.events.length > 1) {
+            const firstEvent = cluster.events[0];
+            const liveEvent = cluster.events.find((event) => getTemporalStatus(event) === "live_now");
+            const dominantEvent = liveEvent ?? firstEvent;
+            const category = dominantEvent.categories ?? categoryById.get(dominantEvent.category_id);
+            const markerColor = category?.color ?? "#FF6B61";
+            const clusterDistance = userLocation
+              ? getDistanceKm(userLocation, {
+                  latitude: cluster.latitude,
+                  longitude: cluster.longitude
+                })
+              : null;
+
+            return (
+              <Marker
+                key={cluster.id}
+                position={[cluster.latitude, cluster.longitude]}
+                icon={createClusterIcon(markerColor, cluster.events.length, Boolean(liveEvent))}
+              >
+                <Popup closeButton>
+                  <article className="event-popup mini-event-card">
+                    <div className="event-popup-body">
+                      <div className="event-popup-heading">
+                        <h2 className="event-popup-title">{cluster.events.length} eventi qui</h2>
+                      </div>
+                      <div className="event-popup-meta">
+                        <span>{liveEvent ? "Ora nella zona" : "Eventi vicini"}</span>
+                        {clusterDistance !== null ? (
+                          <span>{formatDistance(clusterDistance, locale)}</span>
+                        ) : null}
+                      </div>
+                      <div className="cluster-list">
+                        {cluster.events.slice(0, 4).map((event) => {
+                          const status = getTemporalStatus(event);
+
+                          return (
+                            <a className="cluster-item" href={`/event/${event.id}`} key={event.id}>
+                              <strong>{event.title}</strong>
+                              <span>{getTemporalStatusLabel(event, status, locale)}</span>
+                            </a>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </article>
+                </Popup>
+              </Marker>
+            );
+          }
+
+          const event = cluster.events[0];
           const category = event.categories ?? categoryById.get(event.category_id);
           const markerColor = category?.color ?? "#FF6B61";
           const isLocked = isPasswordLocked(event);
@@ -155,9 +259,15 @@ export default function EventMap({
                       {distance !== null ? <span>{formatDistance(distance, locale)}</span> : null}
                       <span>{sourceLabel(event, locale)}</span>
                     </div>
-                    <Link className="detail-button" href={`/event/${event.id}`}>
-                      {locale === "it" ? "Apri dettagli" : "Open details"}
-                    </Link>
+                    <div className="mini-card-actions">
+                      <a className="detail-button" href={`/event/${event.id}`}>
+                        {locale === "it" ? "Apri dettagli" : "Open details"}
+                      </a>
+                      <a className="maps-button" href={mapsUrl(event)} target="_blank" rel="noreferrer">
+                        <ExternalLink size={14} aria-hidden="true" />
+                        Maps
+                      </a>
+                    </div>
                   </div>
                 </article>
               </Popup>

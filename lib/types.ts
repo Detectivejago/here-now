@@ -37,6 +37,9 @@ export type City = {
   name: string;
   slug: string;
   country_code: string;
+  country?: string | null;
+  timezone?: string | null;
+  launch_status?: "active" | "beta" | "requested" | null;
   latitude: number;
   longitude: number;
   radius_km: number;

@@ -100,6 +100,13 @@ function isSameDay(date: Date, now: Date) {
   );
 }
 
+function isTomorrow(date: Date, now: Date) {
+  const tomorrow = new Date(now);
+  tomorrow.setDate(now.getDate() + 1);
+
+  return isSameDay(date, tomorrow);
+}
+
 export function matchesTimeFilter(event: EventRecord, filter: TimeFilter, now = new Date()) {
   const eventType = event.event_type ?? "temporary";
   const temporalStatus = getTemporalStatus(event, now);
@@ -168,7 +175,7 @@ export function getTemporalStatusLabel(
   }
 
   if (status === "today_later") {
-    return locale === "it" ? "Piu tardi oggi" : "Later today";
+    return locale === "it" ? "Più tardi oggi" : "Later today";
   }
 
   if (status === "ongoing" && end) {
@@ -182,6 +189,10 @@ export function getTemporalStatusLabel(
 
   if (status === "ended") {
     return locale === "it" ? "Terminato" : "Ended";
+  }
+
+  if (isTomorrow(start, now)) {
+    return locale === "it" ? "Domani" : "Tomorrow";
   }
 
   const day = formatter.format(start);
