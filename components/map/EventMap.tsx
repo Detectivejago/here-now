@@ -4,6 +4,7 @@ import L from "leaflet";
 import { ExternalLink, Lock, MapPin, X } from "lucide-react";
 import { type CSSProperties, useCallback, useEffect, useMemo, useState } from "react";
 import { MapContainer, Marker, TileLayer, useMap, useMapEvents } from "react-leaflet";
+import ReportEventButton from "@/components/event/ReportEventButton";
 import { trackAnalytics } from "@/lib/analytics";
 import {
   getTemporalStatus,
@@ -357,6 +358,7 @@ function EventBottomSheet({
             {locale === "it" ? "Apri in Maps" : "Open in Maps"}
           </a>
         ) : null}
+        <ReportEventButton eventId={event.id} compact />
       </div>
     </aside>
   );

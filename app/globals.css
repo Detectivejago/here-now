@@ -714,6 +714,11 @@ a {
   white-space: nowrap;
 }
 
+.event-sheet-actions .report-trigger.compact {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
 .event-sheet-list {
   max-height: 184px;
   overflow: auto;
@@ -1420,6 +1425,18 @@ a {
   color: var(--navy);
   background: rgba(255, 255, 255, 0.72);
   font-weight: 900;
+}
+
+.report-trigger.compact {
+  min-height: 38px;
+  padding: 0 12px;
+  background: rgba(23, 63, 114, 0.08);
+  font-size: 0.86rem;
+}
+
+.event-sheet-actions .report-card {
+  grid-column: 1 / -1;
+  width: 100%;
 }
 
 .choice-grid.compact {

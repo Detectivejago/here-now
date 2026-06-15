@@ -7,10 +7,12 @@ type EventQualityInput = Partial<
     | "description"
     | "address"
     | "venue_name"
+    | "category_id"
     | "latitude"
     | "longitude"
     | "start_date"
     | "start_time"
+    | "moderation_status"
     | "source_type"
     | "confidence_score"
     | "verified_at"
@@ -40,26 +42,37 @@ function hasClearTime(event: EventQualityInput) {
   return !Number.isNaN(new Date(dateValue).getTime());
 }
 
+function hasCategory(event: EventQualityInput) {
+  return hasText(event.category_id);
+}
+
+function hasReliableSource(event: EventQualityInput) {
+  if (!event.source_type) {
+    return false;
+  }
+
+  if (event.source_type === "partner" || event.source_type === "manual") {
+    return true;
+  }
+
+  return (event.confidence_score ?? 0) >= 0.65;
+}
+
+function isVerifiedOrApproved(event: EventQualityInput) {
+  return Boolean(event.verified_at) || event.moderation_status === "approved";
+}
+
 export function calculateEventQualityScore(event: EventQualityInput) {
   let score = 0;
 
-  if (hasText(event.title)) score += 0.16;
-  if (hasText(event.address) || hasText(event.venue_name)) score += 0.15;
-  if (hasCoordinates(event)) score += 0.18;
-  if (hasClearTime(event)) score += 0.16;
-  if (hasText(event.description)) score += 0.15;
-
-  if (event.source_type === "partner" || event.source_type === "manual") {
-    score += 0.1;
-  } else if (event.source_type === "api" && (event.confidence_score ?? 0) >= 0.75) {
-    score += 0.08;
-  } else if ((event.confidence_score ?? 0) >= 0.85) {
-    score += 0.05;
-  }
-
-  if (event.verified_at) {
-    score += 0.1;
-  }
+  if (hasText(event.title)) score += 0.14;
+  if (hasText(event.address) || hasText(event.venue_name)) score += 0.13;
+  if (hasCoordinates(event)) score += 0.16;
+  if (hasClearTime(event)) score += 0.15;
+  if (hasText(event.description)) score += 0.13;
+  if (hasCategory(event)) score += 0.12;
+  if (hasReliableSource(event)) score += 0.09;
+  if (isVerifiedOrApproved(event)) score += 0.08;
 
   return Math.min(1, Number(score.toFixed(2)));
 }

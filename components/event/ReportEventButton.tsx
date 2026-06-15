@@ -9,6 +9,7 @@ import type { EventReportReason } from "@/lib/types";
 
 type ReportEventButtonProps = {
   eventId: string;
+  compact?: boolean;
 };
 
 const reasons: { value: EventReportReason; label: string }[] = [
@@ -20,7 +21,7 @@ const reasons: { value: EventReportReason; label: string }[] = [
   { value: "other", label: "Altro" }
 ];
 
-export default function ReportEventButton({ eventId }: ReportEventButtonProps) {
+export default function ReportEventButton({ eventId, compact = false }: ReportEventButtonProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [reason, setReason] = useState<EventReportReason>("wrong_time");
   const [details, setDetails] = useState("");
@@ -54,13 +55,17 @@ export default function ReportEventButton({ eventId }: ReportEventButtonProps) {
 
     trackAnalytics("event_reported", { event_id: eventId, reason });
     setDetails("");
-    setMessage("Grazie, controllo ricevuto.");
-    setTimeout(() => setIsOpen(false), 900);
+    setMessage("Grazie, controlleremo questo evento.");
+    setTimeout(() => setIsOpen(false), 1200);
   };
 
   if (!isOpen) {
     return (
-      <button className="report-trigger" type="button" onClick={() => setIsOpen(true)}>
+      <button
+        className={compact ? "report-trigger compact" : "report-trigger"}
+        type="button"
+        onClick={() => setIsOpen(true)}
+      >
         <Flag size={15} aria-hidden="true" />
         Segnala
       </button>
@@ -88,7 +93,7 @@ export default function ReportEventButton({ eventId }: ReportEventButtonProps) {
         ))}
       </div>
       <label className="field">
-        Dettagli opzionali
+        Messaggio opzionale
         <textarea value={details} onChange={(event) => setDetails(event.target.value)} />
       </label>
       <button className="small-button save" type="submit" disabled={isSaving}>
