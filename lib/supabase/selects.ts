@@ -1,3 +1,36 @@
+export const citySelect = `
+  id,
+  name,
+  slug,
+  country_code,
+  country,
+  timezone,
+  launch_status,
+  latitude,
+  longitude,
+  lat,
+  lng,
+  radius_km,
+  bbox,
+  is_active
+`;
+
+export const legacyCitySelect = citySelect
+  .replace("  lat,\n", "")
+  .replace("  lng,\n", "");
+
+export const minimalCitySelect = `
+  id,
+  name,
+  slug,
+  country_code,
+  latitude,
+  longitude,
+  radius_km,
+  bbox,
+  is_active
+`;
+
 export const publicEventSelect = `
   id,
   title,

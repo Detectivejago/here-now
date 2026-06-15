@@ -50,6 +50,8 @@ export type City = {
   launch_status?: "active" | "beta" | "requested" | null;
   latitude: number;
   longitude: number;
+  lat?: number | null;
+  lng?: number | null;
   radius_km: number;
   bbox: CityBounds;
   is_active: boolean;

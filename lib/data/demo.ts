@@ -8,6 +8,8 @@ export const demoCities: City[] = [
     country_code: "IT",
     latitude: 45.4642,
     longitude: 9.19,
+    lat: 45.4642,
+    lng: 9.19,
     radius_km: 14,
     bbox: { south: 45.386, west: 9.04, north: 45.535, east: 9.32 },
     is_active: true
@@ -19,6 +21,8 @@ export const demoCities: City[] = [
     country_code: "FR",
     latitude: 48.8566,
     longitude: 2.3522,
+    lat: 48.8566,
+    lng: 2.3522,
     radius_km: 15,
     bbox: { south: 48.8156, west: 2.2241, north: 48.9022, east: 2.4699 },
     is_active: true
@@ -30,6 +34,8 @@ export const demoCities: City[] = [
     country_code: "NL",
     latitude: 52.3676,
     longitude: 4.9041,
+    lat: 52.3676,
+    lng: 4.9041,
     radius_km: 12,
     bbox: { south: 52.318, west: 4.728, north: 52.431, east: 5.079 },
     is_active: true
@@ -41,6 +47,8 @@ export const demoCities: City[] = [
     country_code: "US",
     latitude: 40.7128,
     longitude: -74.006,
+    lat: 40.7128,
+    lng: -74.006,
     radius_km: 18,
     bbox: { south: 40.4774, west: -74.2591, north: 40.9176, east: -73.7004 },
     is_active: true

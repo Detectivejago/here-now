@@ -1,10 +1,17 @@
+import { normalizeCities } from "@/lib/cities/normalizeCities";
 import { demoHomeData } from "@/lib/data/demo";
 import { getDemoEventsForFilters } from "@/lib/data/filters";
 import { filterEventsForMap } from "@/lib/events/filters";
 import { normalizeEventRecords } from "@/lib/events/records";
-import type { Category, City, HomeData } from "@/lib/types";
+import type { Category, HomeData } from "@/lib/types";
 import { isInsideCityBounds, limitEventsForViewport } from "@/lib/utils/geo";
-import { legacyMapEventSelect, mapEventSelect } from "./selects";
+import {
+  citySelect,
+  legacyCitySelect,
+  legacyMapEventSelect,
+  mapEventSelect,
+  minimalCitySelect
+} from "./selects";
 import { createSupabaseServerClient } from "./server";
 
 function getInitialDemoHomeData(): HomeData {
@@ -24,19 +31,45 @@ export async function getInitialHomeData(): Promise<HomeData> {
     return getInitialDemoHomeData();
   }
 
-  const [{ data: cities, error: citiesError }, { data: categories, error: categoriesError }] =
-    await Promise.all([
-      supabase
-        .from("cities")
-        .select("*")
-        .eq("is_active", true)
-        .order("name", { ascending: true }),
-      supabase
-        .from("categories")
-        .select("*")
-        .eq("is_active", true)
-        .order("sort_order", { ascending: true })
-    ]);
+  const [citiesResult, { data: categories, error: categoriesError }] = await Promise.all([
+    supabase
+      .from("cities")
+      .select(citySelect)
+      .eq("is_active", true)
+      .order("name", { ascending: true }),
+    supabase
+      .from("categories")
+      .select("*")
+      .eq("is_active", true)
+      .order("sort_order", { ascending: true })
+  ]);
+
+  let citiesData: unknown[] | null = citiesResult.data;
+  let citiesError = citiesResult.error;
+
+  if (citiesError) {
+    const legacyCitiesResult = await supabase
+      .from("cities")
+      .select(legacyCitySelect)
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    citiesData = legacyCitiesResult.data;
+    citiesError = legacyCitiesResult.error;
+  }
+
+  if (citiesError) {
+    const minimalCitiesResult = await supabase
+      .from("cities")
+      .select(minimalCitySelect)
+      .eq("is_active", true)
+      .order("name", { ascending: true });
+
+    citiesData = minimalCitiesResult.data;
+    citiesError = minimalCitiesResult.error;
+  }
+
+  const cities = normalizeCities(citiesData ?? []);
 
   if (citiesError || categoriesError || !cities?.length || !categories?.length) {
     return getInitialDemoHomeData();
@@ -66,7 +99,7 @@ export async function getInitialHomeData(): Promise<HomeData> {
 
   if (eventsError) {
     return {
-      cities: cities as City[],
+      cities,
       categories: categories as Category[],
       events: []
     };
@@ -77,7 +110,7 @@ export async function getInitialHomeData(): Promise<HomeData> {
   );
 
   return {
-    cities: cities as City[],
+    cities,
     categories: categories as Category[],
     events: limitEventsForViewport(filterEventsForMap(scopedEvents, "week"))
   };

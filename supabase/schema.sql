@@ -31,6 +31,8 @@ create table if not exists public.cities (
     check (launch_status in ('active', 'beta', 'requested')),
   latitude double precision not null check (latitude between -90 and 90),
   longitude double precision not null check (longitude between -180 and 180),
+  lat double precision check (lat is null or lat between -90 and 90),
+  lng double precision check (lng is null or lng between -180 and 180),
   radius_km numeric(8, 2) not null default 10 check (radius_km > 0),
   bbox jsonb not null,
   is_active boolean not null default true,
@@ -210,6 +212,8 @@ create table if not exists public.raw_events (
 create index if not exists profiles_role_idx on public.profiles(role);
 create index if not exists cities_slug_idx on public.cities(slug);
 create index if not exists cities_active_idx on public.cities(is_active);
+create index if not exists cities_active_launch_idx on public.cities(is_active, launch_status);
+create index if not exists cities_lat_lng_idx on public.cities(lat, lng);
 create index if not exists categories_slug_idx on public.categories(slug);
 create index if not exists categories_active_sort_idx on public.categories(is_active, sort_order);
 create index if not exists clubs_city_idx on public.clubs(city_id);
@@ -259,6 +263,42 @@ drop trigger if exists set_cities_updated_at on public.cities;
 create trigger set_cities_updated_at
 before update on public.cities
 for each row execute function public.set_updated_at();
+
+create or replace function public.sync_city_coordinates()
+returns trigger
+language plpgsql
+as $$
+begin
+  if TG_OP = 'UPDATE' then
+    if new.lat is distinct from old.lat and new.latitude is not distinct from old.latitude then
+      new.latitude = new.lat;
+    end if;
+
+    if new.lng is distinct from old.lng and new.longitude is not distinct from old.longitude then
+      new.longitude = new.lng;
+    end if;
+
+    if new.latitude is distinct from old.latitude and new.lat is not distinct from old.lat then
+      new.lat = new.latitude;
+    end if;
+
+    if new.longitude is distinct from old.longitude and new.lng is not distinct from old.lng then
+      new.lng = new.longitude;
+    end if;
+  end if;
+
+  new.latitude = coalesce(new.latitude, new.lat);
+  new.longitude = coalesce(new.longitude, new.lng);
+  new.lat = coalesce(new.lat, new.latitude);
+  new.lng = coalesce(new.lng, new.longitude);
+  return new;
+end;
+$$;
+
+drop trigger if exists sync_city_coordinates on public.cities;
+create trigger sync_city_coordinates
+before insert or update of latitude, longitude, lat, lng on public.cities
+for each row execute function public.sync_city_coordinates();
 
 drop trigger if exists set_categories_updated_at on public.categories;
 create trigger set_categories_updated_at
