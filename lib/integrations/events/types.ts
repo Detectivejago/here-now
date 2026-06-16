@@ -15,8 +15,10 @@ export type NormalizedEventInput = {
   categorySlug?: string;
   startDate: string;
   endDate?: string | null;
+  timezone?: string | null;
   latitude: number;
   longitude: number;
+  venueName?: string | null;
   address?: string | null;
   imageUrl?: string | null;
   externalId?: string | null;

@@ -55,7 +55,7 @@ function hasReliableSource(event: EventQualityInput) {
     return true;
   }
 
-  return (event.confidence_score ?? 0) >= 0.65;
+  return (event.source_type === "api" || event.source_type === "imported") && (event.confidence_score ?? 0) >= 0.65;
 }
 
 function isVerifiedOrApproved(event: EventQualityInput) {

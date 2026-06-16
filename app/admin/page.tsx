@@ -9,6 +9,7 @@ import {
   saveEvent,
   updateEventStatus
 } from "@/app/admin/actions";
+import TicketmasterImportButton from "@/components/admin/TicketmasterImportButton";
 import { getLifecycleStatus, getModerationStatus } from "@/lib/events/filters";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import type { Category, City, EventRecord } from "@/lib/types";
@@ -129,6 +130,10 @@ export default async function AdminPage() {
                 <span>click evento 7 giorni</span>
               </div>
             </div>
+          </section>
+
+          <section className="admin-card">
+            <TicketmasterImportButton />
           </section>
 
           <section className="admin-card">

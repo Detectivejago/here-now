@@ -100,7 +100,7 @@ create table if not exists public.events (
   password_hash text,
   secret_token text default encode(gen_random_bytes(24), 'hex'),
   source_type text not null default 'user'
-    check (source_type in ('user', 'api', 'partner', 'manual')),
+    check (source_type in ('user', 'api', 'partner', 'manual', 'imported')),
   source_id text,
   external_id text,
   source_url text,
@@ -180,7 +180,7 @@ create table if not exists public.event_sources (
   provider text not null,
   name text not null,
   source_type text not null default 'api'
-    check (source_type in ('user', 'api', 'partner', 'manual')),
+    check (source_type in ('user', 'api', 'partner', 'manual', 'imported')),
   base_url text,
   api_key_env text,
   enabled boolean not null default false,

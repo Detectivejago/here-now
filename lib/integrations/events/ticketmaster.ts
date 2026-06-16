@@ -5,6 +5,7 @@ import type { ImportAdapterResult, NormalizedEventInput, RawEventEnvelope } from
 type TicketmasterAdapterOptions = {
   citySlug: string;
   cityName: string;
+  countryCode?: string;
   categorySlug?: string;
   startDateTime?: string;
   endDateTime?: string;
@@ -13,13 +14,23 @@ type TicketmasterAdapterOptions = {
 
 const ticketmasterBaseUrl = "https://app.ticketmaster.com/discovery/v2/events.json";
 
+function fallbackExternalId(event: Record<string, unknown>, citySlug: string) {
+  const name = typeof event.name === "string" ? event.name : "event";
+  const dates = event.dates && typeof event.dates === "object" ? event.dates as Record<string, unknown> : null;
+  const start = dates?.start && typeof dates.start === "object" ? dates.start as Record<string, unknown> : null;
+  const localDate = typeof start?.localDate === "string" ? start.localDate : "unknown-date";
+
+  return `${citySlug}-${name}-${localDate}`.toLowerCase().replace(/[^a-z0-9]+/g, "-").slice(0, 120);
+}
+
 export async function fetchTicketmasterEvents({
   citySlug,
   cityName,
+  countryCode,
   categorySlug,
   startDateTime,
   endDateTime,
-  size = 40
+  size = 20
 }: TicketmasterAdapterOptions): Promise<ImportAdapterResult> {
   const apiKey = process.env.TICKETMASTER_API_KEY;
 
@@ -36,8 +47,15 @@ export async function fetchTicketmasterEvents({
   const url = new URL(ticketmasterBaseUrl);
   url.searchParams.set("apikey", apiKey);
   url.searchParams.set("city", cityName);
-  url.searchParams.set("size", String(size));
+  url.searchParams.set("size", String(Math.min(size, 20)));
   url.searchParams.set("sort", "date,asc");
+  url.searchParams.set("source", "ticketmaster");
+  url.searchParams.set("includeTBA", "no");
+  url.searchParams.set("includeTBD", "no");
+
+  if (countryCode) {
+    url.searchParams.set("countryCode", countryCode);
+  }
 
   if (startDateTime) {
     url.searchParams.set("startDateTime", startDateTime);
@@ -51,7 +69,7 @@ export async function fetchTicketmasterEvents({
     headers: {
       Accept: "application/json"
     },
-    next: { revalidate: 60 * 30 }
+    cache: "no-store"
   });
 
   if (!response.ok) {
@@ -72,8 +90,10 @@ export async function fetchTicketmasterEvents({
   const rawEvents: RawEventEnvelope[] =
     payload._embedded?.events?.map((event) => ({
       source: "ticketmaster",
-      externalId: String(event.id ?? crypto.randomUUID()),
-      payload: event
+      externalId: String(event.id ?? fallbackExternalId(event, citySlug)),
+      payload: event,
+      sourceUrl: typeof event.url === "string" ? event.url : null,
+      receivedAt: new Date().toISOString()
     })) ?? [];
   const normalizedEvents = dedupeEvents(
     rawEvents

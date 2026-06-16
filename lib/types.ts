@@ -17,7 +17,7 @@ export type EventTemporalStatus =
 
 export type EventVisibility = "public" | "password" | "link_only" | "private";
 
-export type EventSourceType = "user" | "api" | "partner" | "manual";
+export type EventSourceType = "user" | "api" | "partner" | "manual" | "imported";
 
 export type EventStatus = ModerationStatus;
 

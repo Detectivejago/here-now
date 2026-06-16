@@ -228,8 +228,10 @@ function sourceLabel(event: EventRecord, locale: Locale) {
   const sourceName =
     visibility === "password" || visibility === "private"
       ? "Private"
-      : source === "api"
-        ? "Imported"
+      : source === "api" || source === "imported"
+        ? event.source_id?.startsWith("ticketmaster:")
+          ? "Ticketmaster"
+          : "Imported"
         : source === "partner"
           ? "Verified"
           : source === "user"
